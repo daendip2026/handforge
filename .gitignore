@@ -34,7 +34,8 @@ dmypy.json
 .ruff_cache/
 
 # HandForge runtime artifacts
-logs/
+logs/*
+!logs/.gitkeep
 *.log
 
 # Environment
