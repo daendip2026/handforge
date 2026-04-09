@@ -8,25 +8,28 @@ on:
 
 jobs:
   lint-and-typecheck:
-    name: lint-and-typecheck          # must match branch protection context name
+    name: lint-and-typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          # Note: default cache key includes uv.lock
 
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv pip install -e ".[dev]"
+        run: uv pip install --frozen -e ".[dev]"
 
       - name: Run ruff check
         run: uv run ruff check src tests scripts
