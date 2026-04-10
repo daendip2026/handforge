@@ -89,6 +89,11 @@ mypy_path = "src"
 module = ["mediapipe.*", "cv2.*"]
 ignore_missing_imports = true
 
+# Silence unused ignore warnings in tests to support platform-specific stubs
+[[tool.mypy.overrides]]
+module = "tests.*"
+warn_unused_ignores = false
+
 # ---------------------------------------------------------------------------
 # Pytest
 # ---------------------------------------------------------------------------
