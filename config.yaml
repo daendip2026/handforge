@@ -1,0 +1,42 @@
+# HandForge Python — Runtime Configuration (v1.0.0)
+# All values here are defaults. Override via environment variables or .env file.
+# Environment variable pattern: HANDFORGE__<SECTION>__<KEY>
+# Example: HANDFORGE__CAMERA__INDEX=1
+
+version: "1.0.0"
+
+camera:
+  index: 0              # Webcam device index (0 = default system camera)
+  width: 640            # Capture width in pixels
+  height: 480           # Capture height in pixels
+  fps: 30               # Requested capture FPS (driver may not honor exactly)
+
+mediapipe:
+  max_num_hands: 1                    # single hand only
+  model_complexity: 1                 # 0=lite, 1=full — full required for world coords
+  min_detection_confidence: 0.7
+  min_tracking_confidence: 0.5
+  static_image_mode: false            # false = video stream mode (lower latency)
+
+tracker:
+  target_fps: 30                      # Minimum acceptable FPS
+  primary_hand: "Right"               # "Right" | "Left"
+
+# Networking & Integration settings
+output:
+  mode: "websocket"                   # websocket | osc | console | none
+  websocket:
+    host: "127.0.0.1"
+    port: 8080
+  osc:
+    host: "127.0.0.1"
+    port: 9000
+    address: "/handforge/landmarks"
+
+logging:
+  level: "INFO"                       # DEBUG | INFO | WARNING | ERROR
+  log_dir: "logs"
+  filename_prefix: "handforge"
+  max_bytes: 10485760                 # 10 MB per file
+  backup_count: 5
+  console_enabled: true
