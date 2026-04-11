@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal
 
-import pytest  # type: ignore
+import pytest
 
 import hand_tracker.logger as logger_module
 from hand_tracker.config import LoggingConfig
@@ -25,7 +25,7 @@ from hand_tracker.logger import (
 )
 
 
-@pytest.fixture(autouse=True)  # type: ignore
+@pytest.fixture(autouse=True)
 def reset_logger() -> Iterator[None]:
     """Ensure logger state is clean before and after every test."""
     shutdown_logging()

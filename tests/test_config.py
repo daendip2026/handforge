@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Generator
+from collections.abc import Iterator
 from pathlib import Path
 
-import pytest  # type: ignore
+import pytest
 import yaml
 from pydantic import ValidationError
 
@@ -20,16 +20,16 @@ from hand_tracker.config import (
 )
 
 
-@pytest.fixture(autouse=True)  # type: ignore
-def clean_config_cache() -> Generator[None, None, None]:
+@pytest.fixture(autouse=True)
+def clean_config_cache() -> Iterator[None]:
     """Ensure load_config cache is cleared before and after each test."""
     load_config.cache_clear()
     yield
     load_config.cache_clear()
 
 
-@pytest.fixture(autouse=True)  # type: ignore
-def clean_env() -> Generator[None, None, None]:
+@pytest.fixture(autouse=True)
+def clean_env() -> Iterator[None]:
     """Provide a clean environment for testing env var overrides."""
     old_env = os.environ.copy()
     # Remove any existing HANDFORGE__ variables

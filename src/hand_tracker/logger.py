@@ -45,9 +45,9 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console  # type: ignore
-from rich.logging import RichHandler  # type: ignore
-from rich.theme import Theme  # type: ignore
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.theme import Theme
 
 from hand_tracker.config import LoggingConfig
 
