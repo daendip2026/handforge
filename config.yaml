@@ -10,6 +10,12 @@ camera:
   width: 640            # Capture width in pixels
   height: 480           # Capture height in pixels
   fps: 30               # Requested capture FPS (driver may not honor exactly)
+  disable_auto_exposure: true          # Set Exposure to manual mode (prevents flickering)
+  disable_auto_focus: true             # Set Focus to fixed mode (prevents jitter)
+  buffer_size: 1                       # Minimize latency by keeping only latest frame (1-10)
+  jitter_threshold_multiplier: 1.5     # Alert if frame interval > N * expected (1.0-5.0)
+  backend: "AUTO"                      # AUTO | ANY | DSHOW | MSMF | V4L2 | AVFOUNDATION
+  fourcc: "MJPG"                       # Video codec format (e.g., MJPG, YUYV, H264)
 
 mediapipe:
   max_num_hands: 1                    # single hand only

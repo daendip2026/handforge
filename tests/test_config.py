@@ -47,10 +47,60 @@ class TestCameraConfig:
         assert cfg.index == 0
         assert cfg.width == 640
         assert cfg.fps == 30
+        assert cfg.disable_auto_exposure is True
+        assert cfg.disable_auto_focus is True
+        assert cfg.buffer_size == 1
+        assert cfg.jitter_threshold_multiplier == 1.5
+        assert cfg.backend == "AUTO"
+        assert cfg.fourcc == "MJPG"
 
     def test_invalid_index_rejected(self) -> None:
         with pytest.raises(ValidationError):
             CameraConfig(index=-1)
+
+    def test_buffer_size_boundaries(self) -> None:
+        # Valid range [1, 10]
+        assert CameraConfig(buffer_size=1).buffer_size == 1
+        assert CameraConfig(buffer_size=10).buffer_size == 10
+        with pytest.raises(ValidationError):
+            CameraConfig(buffer_size=0)
+        with pytest.raises(ValidationError):
+            CameraConfig(buffer_size=11)
+
+    def test_jitter_multiplier_boundaries(self) -> None:
+        # Valid range [1.0, 5.0]
+        assert (
+            CameraConfig(jitter_threshold_multiplier=1.0).jitter_threshold_multiplier
+            == 1.0
+        )
+        assert (
+            CameraConfig(jitter_threshold_multiplier=5.0).jitter_threshold_multiplier
+            == 5.0
+        )
+        with pytest.raises(ValidationError, match="greater_than_equal"):
+            CameraConfig(jitter_threshold_multiplier=0.9)
+        with pytest.raises(ValidationError, match="less_than_equal"):
+            CameraConfig(jitter_threshold_multiplier=5.1)
+
+    def test_backend_validation(self) -> None:
+        # Valid
+        assert CameraConfig(backend="MSMF").backend == "MSMF"
+        assert CameraConfig(backend="AUTO").backend == "AUTO"
+
+        # Invalid
+        with pytest.raises(ValidationError):
+            CameraConfig(backend="INVALID_BACKEND")  # type: ignore
+
+    def test_fourcc_validation(self) -> None:
+        # Valid
+        assert CameraConfig(fourcc="MJPG").fourcc == "MJPG"
+        assert CameraConfig(fourcc="YUY2").fourcc == "YUY2"
+
+        # Invalid length
+        with pytest.raises(ValidationError):
+            CameraConfig(fourcc="JPG")
+        with pytest.raises(ValidationError):
+            CameraConfig(fourcc="MJPEG")
 
 
 class TestMediaPipeConfig:

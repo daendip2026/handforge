@@ -57,6 +57,20 @@ class CameraConfig(HandForgeConfigModel):
     width: int = Field(default=640, ge=160, le=3840)
     height: int = Field(default=480, ge=120, le=2160)
     fps: int = Field(default=30, ge=1, le=120)
+    disable_auto_exposure: bool = Field(default=True)
+    disable_auto_focus: bool = Field(default=True)
+    buffer_size: int = Field(default=1, ge=1, le=10)
+    jitter_threshold_multiplier: float = Field(default=1.5, ge=1.0, le=5.0)
+    backend: Literal["AUTO", "ANY", "DSHOW", "MSMF", "V4L2", "AVFOUNDATION"] = Field(
+        default="AUTO",
+        description="OpenCV capture backend. Keep AUTO for OS-specific defaults.",
+    )
+    fourcc: str = Field(
+        default="MJPG",
+        min_length=4,
+        max_length=4,
+        description="Video codec FOURCC code (e.g., MJPG, YUYV, H264)",
+    )
 
 
 class MediaPipeConfig(HandForgeConfigModel):
