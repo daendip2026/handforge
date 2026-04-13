@@ -20,10 +20,14 @@ Design Decisions:
     - Adaptive Backend Selection: Dynamically selects the most stable capture
       backend (e.g., DirectShow, V4L2) based on the host environment to minimize
       initialization latency.
-    - Thread-Safety: Employs internal locking to support safe concurrent status
-      monitoring and asynchronous device shutdown.
-    - Synchronous I/O: Core capture operations remain synchronous for
-      predictability, designed for integration into threaded pipeline architectures.
+    - Asynchronous Producer-Consumer: Uses a dedicated background thread (Producer)
+      to handle hardware I/O independently. This completely decoupled design eliminates
+      shared consumer locks, ensuring UI or modeling pipelines never block or stutter
+      due to camera logic.
+    - Zero-Latency Tracking: The internal transfer queue is rigidly capped (maxsize=1)
+      and aggressively drops older unprocessed frames if the consumer is slow. This
+      guarantees the caller always evaluates the absolute most recent reality, avoiding
+      frame stacking lag in real-time AI inferences.
     - High-Resolution Timing: Utilizes monotonic performance counters anchored
       to a wall-clock origin to bypass platform-specific limitations in system
       clock resolution (e.g. 15ms increments on legacy schedulers).
@@ -31,7 +35,9 @@ Design Decisions:
 
 from __future__ import annotations
 
+import contextlib
 import platform
+import queue
 import threading
 import time
 from collections.abc import Iterator
@@ -278,69 +284,78 @@ class WebcamCapture:
         self._cap: cv2.VideoCapture | None = None
         self._anchor: _TimeAnchor | None = None
         self.device_info: DeviceInfo | None = None
-        self._lock = threading.Lock()
+
+        # Async Producer-Consumer State
+        self._frame_queue: queue.Queue[Frame | Exception] = queue.Queue(maxsize=1)
+        self._stop_event = threading.Event()
+        self._worker_thread: threading.Thread | None = None
 
     # ------------------------------------------------------------------
     # Context manager protocol
     # ------------------------------------------------------------------
 
     def __enter__(self) -> WebcamCapture:
-        with self._lock:
-            cap = None
-            try:
-                cap = _open_device(self._cfg)
-                self._cap = cap
-                self._anchor = _TimeAnchor.now()
+        cap = None
+        try:
+            cap = _open_device(self._cfg)
+            self._cap = cap
+            self._anchor = _TimeAnchor.now()
 
-                backend = _select_backend(self._cfg.backend)
-                self.device_info = _read_device_info(cap, self._cfg.index, backend)
+            backend = _select_backend(self._cfg.backend)
+            self.device_info = _read_device_info(cap, self._cfg.index, backend)
 
-                if (
-                    self.device_info.fourcc
-                    and self.device_info.fourcc != self._cfg.fourcc
-                ):
-                    log.warning(
-                        "camera driver silently rejected requested format",
-                        extra={
-                            "requested_fourcc": self._cfg.fourcc,
-                            "actual_fourcc": self.device_info.fourcc,
-                            "note": "USB bandwidth may limit actual FPS or resolution.",
-                        },
-                    )
-
-                if (
-                    self.device_info.actual_fps > 0
-                    and self.device_info.actual_fps
-                    < self._cfg.fps * MIN_ACCEPTABLE_FPS_RATIO
-                ):
-                    log.warning(
-                        "camera driver cannot sustain requested FPS",
-                        extra={
-                            "requested_fps": self._cfg.fps,
-                            "actual_fps": self.device_info.actual_fps,
-                        },
-                    )
-
-                log.info(
-                    "capture device opened",
+            if self.device_info.fourcc and self.device_info.fourcc != self._cfg.fourcc:
+                log.warning(
+                    "camera driver silently rejected requested format",
                     extra={
-                        "index": self.device_info.index,
-                        "actual_width": self.device_info.actual_width,
-                        "actual_height": self.device_info.actual_height,
-                        "actual_fps": self.device_info.actual_fps,
+                        "requested_fourcc": self._cfg.fourcc,
                         "actual_fourcc": self.device_info.fourcc,
-                        "backend": self.device_info.backend,
-                        "requested_width": self._cfg.width,
-                        "requested_height": self._cfg.height,
-                        "requested_fps": self._cfg.fps,
+                        "note": "USB bandwidth may limit actual FPS or resolution.",
                     },
                 )
-                return self
-            except Exception:
-                if cap is not None:
-                    cap.release()
-                self._cap = None
-                raise
+
+            if (
+                self.device_info.actual_fps > 0
+                and self.device_info.actual_fps
+                < self._cfg.fps * MIN_ACCEPTABLE_FPS_RATIO
+            ):
+                log.warning(
+                    "camera driver cannot sustain requested FPS",
+                    extra={
+                        "requested_fps": self._cfg.fps,
+                        "actual_fps": self.device_info.actual_fps,
+                    },
+                )
+
+            log.info(
+                "capture device opened",
+                extra={
+                    "index": self.device_info.index,
+                    "actual_width": self.device_info.actual_width,
+                    "actual_height": self.device_info.actual_height,
+                    "actual_fps": self.device_info.actual_fps,
+                    "actual_fourcc": self.device_info.fourcc,
+                    "backend": self.device_info.backend,
+                    "requested_width": self._cfg.width,
+                    "requested_height": self._cfg.height,
+                    "requested_fps": self._cfg.fps,
+                },
+            )
+
+            # Spawn dedicated hardware I/O thread
+            self._worker_thread = threading.Thread(
+                target=self._read_loop,
+                name=f"CaptureWorker-{self._cfg.index}",
+                daemon=True,
+            )
+            self._worker_thread.start()
+
+            return self
+        except Exception:
+            if cap is not None:
+                cap.release()
+            self._cap = None
+            raise
 
     def __exit__(
         self,
@@ -348,39 +363,44 @@ class WebcamCapture:
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
-        with self._lock:
-            if self._cap is not None:
-                self._cap.release()
-                self._cap = None
-                log.info("capture device released")
+        # Request grace shutdown of the background thread
+        self._stop_event.set()
+        if self._worker_thread is not None:
+            self._worker_thread.join(timeout=3.0)
+            self._worker_thread = None
+        self._cap = None
 
     # ------------------------------------------------------------------
-    # Iterator protocol
+    # Worker Thread (Producer)
     # ------------------------------------------------------------------
 
-    def __iter__(self) -> Iterator[Frame]:
-        if self._cap is None or self._anchor is None or self.device_info is None:
-            raise RuntimeError(
-                "WebcamCapture must be used as a context manager before iterating."
-            )
+    def _push_to_queue(self, item: Frame | Exception) -> None:
+        """Pushes to queue, aggressively dropping old frames to ensure zero latency."""
+        try:
+            self._frame_queue.put_nowait(item)
+        except queue.Full:
+            with contextlib.suppress(queue.Empty):
+                self._frame_queue.get_nowait()
+            self._frame_queue.put(item)
 
+    def _read_loop(self) -> None:
+        """Background thread executing cap.read() synchronously."""
         consecutive_failures = 0
         frame_index = 0
 
-        # Jitter detection state
+        if self._anchor is None or self.device_info is None or self._cap is None:
+            return
+
         last_ts_us = self._anchor.wall_us
         expected_delta_us = (1.0 / self.device_info.actual_fps) * 1_000_000
-        # Alert if delta > multiplier * expected
         jitter_threshold_us = expected_delta_us * self._cfg.jitter_threshold_multiplier
 
-        while True:
-            with self._lock:
-                if self._cap is None:
-                    # Device released by another thread
-                    return
+        while not self._stop_event.is_set():
+            ok, bgr = self._cap.read()
+            now_us = self._anchor.current_us()
 
-                ok, bgr = self._cap.read()
-                now_us = self._anchor.current_us()
+            if self._stop_event.is_set():
+                break
 
             if not ok or bgr is None:
                 consecutive_failures += 1
@@ -392,11 +412,13 @@ class WebcamCapture:
                     },
                 )
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    raise CaptureError(
+                    exc = CaptureError(
                         f"Camera index={self._cfg.index} failed "
                         f"{MAX_CONSECUTIVE_FAILURES} consecutive reads. "
-                        "Device may have been disconnected - check USB connection."
+                        "Device may have been disconnected."
                     )
+                    self._push_to_queue(exc)
+                    break
                 continue
 
             # Jitter detection
@@ -413,9 +435,34 @@ class WebcamCapture:
             consecutive_failures = 0
             last_ts_us = now_us
 
-            yield Frame(
+            frame = Frame(
                 bgr=bgr,
                 timestamp_us=now_us,
                 frame_index=frame_index,
             )
+            self._push_to_queue(frame)
             frame_index += 1
+
+        self._cap.release()
+        log.info("capture device released")
+
+    # ------------------------------------------------------------------
+    # Iterator protocol (Consumer)
+    # ------------------------------------------------------------------
+
+    def __iter__(self) -> Iterator[Frame]:
+        if self._worker_thread is None or self.device_info is None:
+            raise RuntimeError(
+                "WebcamCapture must be used as a context manager before iterating."
+            )
+
+        while not self._stop_event.is_set():
+            try:
+                item = self._frame_queue.get(timeout=0.1)
+                if isinstance(item, Exception):
+                    raise item
+                yield item
+            except queue.Empty:
+                if self._worker_thread is None or not self._worker_thread.is_alive():
+                    # Thread died unexpectedly without emitting exception
+                    break
