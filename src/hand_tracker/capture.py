@@ -42,11 +42,11 @@ import threading
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, cast
 
 import cv2
-import numpy as np  # type: ignore[import-not-found]
-import numpy.typing as npt  # type: ignore[import-not-found]
+import numpy as np
+import numpy.typing as npt
 
 from hand_tracker.config import CameraConfig
 from hand_tracker.logger import get_logger
@@ -175,7 +175,7 @@ def _open_device(cfg: CameraConfig) -> cv2.VideoCapture:
     # FOURCC must be set FIRST. High resolutions/FPS will be silently rejected
     # if the default codec (e.g. YUYV) cannot support the required USB bandwidth.
     # Therefore, we use a List to strictly enforce this sequence.
-    props_sequence = [
+    props_sequence: list[tuple[str, tuple[int, int | float]]] = [
         ("fourcc", (cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*cfg.fourcc))),
         ("width", (cv2.CAP_PROP_FRAME_WIDTH, cfg.width)),
         ("height", (cv2.CAP_PROP_FRAME_HEIGHT, cfg.height)),
@@ -435,8 +435,9 @@ class WebcamCapture:
             consecutive_failures = 0
             last_ts_us = now_us
 
+            bgr_uint8 = cast(npt.NDArray[np.uint8], bgr)
             frame = Frame(
-                bgr=bgr,
+                bgr=bgr_uint8,
                 timestamp_us=now_us,
                 frame_index=frame_index,
             )
