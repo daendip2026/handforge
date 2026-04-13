@@ -138,55 +138,6 @@ class LoggingConfig(HandForgeConfigModel):
 
 
 # ---------------------------------------------------------------------------
-# Custom Settings Source (YAML)
-# ---------------------------------------------------------------------------
-
-
-class YamlConfigSettingsSource(PydanticBaseSettingsSource):
-    """
-    A settings source that loads data from a YAML file.
-    """
-
-    def __init__(
-        self,
-        settings_cls: type[BaseSettings],
-        yaml_path: str | Path | None = None,
-    ):
-        """
-        Initialize the YAML settings source.
-
-        Args:
-            settings_cls: The settings class this source is used for.
-            yaml_path: Explicit path provided at runtime. Stored separately
-                      to bypass AppConfig's extra="forbid" constraint.
-        """
-        super().__init__(settings_cls)
-        self.yaml_path = yaml_path
-
-    def get_field_value(
-        self, field: Any, field_name: str
-    ) -> tuple[Any, str, bool]:  # pragma: no cover
-        # This method is required by the interface but not used for full dict loads
-        return None, field_name, False
-
-    def __call__(self) -> dict[str, Any]:
-        # Priority: explicit passed path > filename default
-        # Cast to str to satisfy Path() type requirements in mypy
-        config_path = str(self.yaml_path or DEFAULT_CONFIG_FILE)
-        path = Path(config_path)
-        if not path.exists():
-            return {}
-
-        try:
-            with path.open("r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            # you might want to log this or raise a specific error
-            return {}
-
-
-# ---------------------------------------------------------------------------
 # Root config
 # ---------------------------------------------------------------------------
 
@@ -204,9 +155,6 @@ class AppConfig(BaseSettings):
         frozen=True,
         extra="forbid",
     )
-
-    # Orchestration field: allowed in constructor but excluded from model output
-    config_path: str | None = Field(default=None, exclude=True)
 
     version: str = Field(default="1.0.0")
     camera: CameraConfig = Field(default_factory=CameraConfig)
@@ -242,21 +190,10 @@ class AppConfig(BaseSettings):
         Define the priority of configuration sources.
         Env Var > Dotenv (.env) > YAML > Default
         """
-        # Extract the config_path from init_settings (constructor arguments)
-        init_data = init_settings()
-        extracted_path = init_data.get("config_path")
-
-        # If no explicit path is passed, fetch from field default
-        if extracted_path is None:
-            field_info = settings_cls.model_fields.get("config_path")
-            if field_info:
-                extracted_path = field_info.get_default()
-
         return (
-            init_settings,
             env_settings,
             dotenv_settings,
-            YamlConfigSettingsSource(settings_cls, yaml_path=extracted_path),
+            init_settings,
         )
 
 
@@ -285,6 +222,18 @@ def load_config(config_path: str = DEFAULT_CONFIG_FILE) -> AppConfig:
     ------
     pydantic.ValidationError
         If any value fails schema validation (range, type, cross-field rule).
+    yaml.YAMLError
+        If the YAML file contains syntactical errors (fail-fast rule).
     """
-    # Simply instantiating AppConfig triggers the Pydantic loading pipeline.
-    return AppConfig(config_path=config_path)
+    path = Path(config_path)
+    yaml_data: dict[str, Any] = {}
+
+    if path.exists():
+        with path.open("r", encoding="utf-8") as f:
+            parsed = yaml.safe_load(f)
+            if isinstance(parsed, dict):
+                yaml_data = parsed
+
+    # Instantiating AppConfig with yaml_data directly as kwargs injects them as
+    # init_settings, neatly bypassing any model schema pollution.
+    return AppConfig(**yaml_data)

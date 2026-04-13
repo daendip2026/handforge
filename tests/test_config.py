@@ -204,7 +204,6 @@ class TestYamlLoading:
 
         # Assert: It should have picked up the file from the current directory
         assert cfg.camera.index == 5
-        assert cfg.config_path == "config.yaml"
 
 
 class TestLoadConfig:
