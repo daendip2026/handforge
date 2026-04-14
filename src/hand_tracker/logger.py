@@ -2,10 +2,11 @@
 Structured JSON logger for HandForge.
 
 Design decisions:
-- Asynchronous Non-blocking Dispatch:
-  Logging is offloaded to a background thread via QueueHandler/QueueListener.
-  For a real-time computer vision pipeline (high FPS), this ensures disk/console
-  I/O never stalls the main inference loop.
+- Asynchronous Non-blocking Dispatch (Zero-Latency Queue):
+  Logging is offloaded to a background thread via a bounded queue (maxsize=10000).
+  If disk/console I/O stalls and the queue fills up, the custom ZeroLatencyQueueHandler
+  aggressively drops the oldest logs. For a real-time computer vision pipeline,
+  this ensures that the main inference loop never OOMs or stutters due to logging overhead.
 - Machine-Parseable JSON:
   Every log record is a single-line JSON. This allows log aggregators (Datadog,
   Loki, GCP Logging) to index the data without post-processing (e.g. regex),
@@ -20,16 +21,25 @@ Design decisions:
   Uses RotatingFileHandler instead of TimedRotatingFileHandler. For desktop
   processes with variable uptime, size-based rotation is more predictable
   and prevents log accumulation. Stable filenames ensure persistence across restarts.
-- Root-level Handler Attachment:
-  All handlers are attached to the root "handforge" logger only. This
-  prevents duplicate records often caused by child-logger propagation.
+- Encapsulated Lifecycle:
+  All state logic and thread management is cleanly encapsulated inside the
+  `AsyncLoggerLifecycle` class, replacing fragile global states and module-level locks,
+  ensuring safe dependency injection and modular teardown.
 
 Usage:
-    from hand_tracker.logger import get_logger, log_context
-    log = get_logger(__name__)
+    from hand_tracker.logger import AsyncLoggerLifecycle, get_logger, log_context
 
+    # 1. At application startup
+    lifecycle = AsyncLoggerLifecycle(cfg)
+    lifecycle.start()
+
+    # 2. Anywhere in your application
+    log = get_logger(__name__)
     with log_context(track_id=42):
         log.info("tracker started", extra={"fps": 30})
+
+    # 3. At application exit
+    lifecycle.stop()
 """
 
 from __future__ import annotations
@@ -68,15 +78,6 @@ _LEVEL_MAP: dict[str, int] = {
 _LOG_CONTEXT: ContextVar[dict[str, Any] | None] = ContextVar(
     "log_context", default=None
 )
-
-# Background listener for non-blocking logging
-_listener: logging.handlers.QueueListener | None = None
-_log_queue: queue.Queue[Any] | None = None
-_handlers: list[logging.Handler] = []
-
-# Internal state for idempotency and thread-safety
-_initialised = False
-_init_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # JSON formatter
@@ -199,105 +200,138 @@ def _make_rich_handler() -> RichHandler:
 
 
 # ---------------------------------------------------------------------------
-# Setup
+# Custom Queue Handler
 # ---------------------------------------------------------------------------
 
 
-def setup_logging(
-    cfg: LoggingConfig, handlers: list[logging.Handler] | None = None
-) -> None:
+class ZeroLatencyQueueHandler(logging.handlers.QueueHandler):
     """
-    Configure the root "handforge" logger.
-
-    Must be called exactly once at process startup, before any get_logger()
-    calls. Subsequent calls are no-ops (idempotent guard via _initialised).
-
-    Parameters
-    ----------
-    cfg:
-        LoggingConfig section from AppConfig.
-    handlers:
-        Optional list of handlers to inject. If provided, the internal
-        file and console handlers are not created. This is primarily
-        for dependency injection during testing.
+    Custom QueueHandler that drops the oldest logs when the queue is full,
+    ensuring the real-time AI pipeline never blocks and unbounded queues
+    don't cause Out Of Memory (OOM) crashes.
     """
-    global _initialised
-    with _init_lock:
-        if _initialised:
-            return
 
-        level = _LEVEL_MAP.get(cfg.level.upper(), logging.INFO)
+    def __init__(self, q: queue.Queue[Any]) -> None:
+        super().__init__(q)
+        self._queue: queue.Queue[Any] = q
 
-        root = logging.getLogger(ROOT_LOGGER_NAME)
-        root.setLevel(level)
-        root.propagate = False  # do not bleed into Python root logger
+    def enqueue(self, record: logging.LogRecord) -> None:
+        try:
+            self._queue.put_nowait(record)
+        except queue.Full:
+            # Active drop policy: drop the oldest to make space for reality
+            with contextlib.suppress(queue.Empty):
+                self._queue.get_nowait()
 
-        # ------------------------------------------------------------------
-        # Handlers Configuration
-        # ------------------------------------------------------------------
-        global _log_queue, _listener, _handlers
+            with contextlib.suppress(queue.Full):
+                self._queue.put_nowait(record)
 
-        if handlers is not None:
-            # Dependency Injection path (usually for testing)
-            _handlers = handlers
-            log_file_val = None
-            injected_list = [type(h).__name__ for h in handlers]
-        else:
-            # Standard Production path
-            log_dir = Path(cfg.log_dir)
-            log_dir.mkdir(parents=True, exist_ok=True)
 
-            # Stable filename: handforge.log (required for reliable rotation)
-            log_path = log_dir / f"{cfg.filename_prefix}.log"
-            log_file_val = str(log_path)
-            injected_list = []
+# ---------------------------------------------------------------------------
+# Lifecycle Management
+# ---------------------------------------------------------------------------
 
-            internal_handlers: list[logging.Handler] = []
 
-            # File handler — rotating JSON
-            file_handler = logging.handlers.RotatingFileHandler(
-                filename=log_path,
-                maxBytes=cfg.max_bytes,
-                backupCount=cfg.backup_count,
-                encoding="utf-8",
+class AsyncLoggerLifecycle:
+    """
+    Encapsulates the lifecycle of the asynchronous logging background thread.
+    Replaces global state variables to ensure safe, modular teardown.
+    """
+
+    def __init__(
+        self, cfg: LoggingConfig, handlers: list[logging.Handler] | None = None
+    ) -> None:
+        self.cfg = cfg
+        self._injected_handlers = handlers
+        self._listener: logging.handlers.QueueListener | None = None
+        self._queue_handler: ZeroLatencyQueueHandler | None = None
+        self._handlers: list[logging.Handler] = []
+        self._active = False
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        """Initialize the background thread and attach handlers."""
+        with self._lock:
+            if self._active:
+                return
+
+            level = _LEVEL_MAP.get(self.cfg.level.upper(), logging.INFO)
+            root = logging.getLogger(ROOT_LOGGER_NAME)
+            root.setLevel(level)
+            root.propagate = False
+
+            if self._injected_handlers is not None:
+                self._handlers = list(self._injected_handlers)
+                log_file_val = None
+                injected_list = [type(h).__name__ for h in self._handlers]
+            else:
+                log_dir = Path(self.cfg.log_dir)
+                log_dir.mkdir(parents=True, exist_ok=True)
+                log_path = log_dir / f"{self.cfg.filename_prefix}.log"
+                log_file_val = str(log_path)
+                injected_list = []
+
+                file_handler = logging.handlers.RotatingFileHandler(
+                    filename=log_path,
+                    maxBytes=self.cfg.max_bytes,
+                    backupCount=self.cfg.backup_count,
+                    encoding="utf-8",
+                )
+                file_handler.setFormatter(_JsonFormatter())
+                self._handlers.append(file_handler)
+
+                if self.cfg.console_enabled:
+                    self._handlers.append(_make_rich_handler())
+
+            # Bounded queue is critical for OOM defense!
+            log_queue: queue.Queue[Any] = queue.Queue(maxsize=10000)
+            self._queue_handler = ZeroLatencyQueueHandler(log_queue)
+
+            self._listener = logging.handlers.QueueListener(
+                log_queue, *self._handlers, respect_handler_level=True
             )
-            file_handler.setFormatter(_JsonFormatter())
-            internal_handlers.append(file_handler)
+            self._listener.start()
+            root.addHandler(self._queue_handler)
+            self._active = True
 
-            # Console handler — Rich (human-readable)
-            if cfg.console_enabled:
-                rich_handler = _make_rich_handler()
-                internal_handlers.append(rich_handler)
+            _startup_log = logging.getLogger(f"{ROOT_LOGGER_NAME}.logger")
+            _startup_log.info(
+                "logging initialised",
+                extra={
+                    "log_file": log_file_val,
+                    "injected": injected_list,
+                    "level": self.cfg.level,
+                    "console": self.cfg.console_enabled,
+                    "mode": "injected"
+                    if self._injected_handlers is not None
+                    else "standard",
+                },
+            )
 
-            _handlers = internal_handlers
+    def stop(self) -> None:
+        """Stop the background formatting thread and close handlers."""
+        with self._lock:
+            if not self._active:
+                return
 
-        # ------------------------------------------------------------------
-        # Asynchronous Dispatch (QueueHandler -> QueueListener)
-        # ------------------------------------------------------------------
-        _log_queue = queue.Queue(-1)  # unbounded
-        queue_handler = logging.handlers.QueueHandler(_log_queue)
+            root = logging.getLogger(ROOT_LOGGER_NAME)
 
-        # Listener runs in a separate thread and pulls from the queue
-        _listener = logging.handlers.QueueListener(
-            _log_queue, *_handlers, respect_handler_level=True
-        )
-        _listener.start()
+            if self._listener:
+                self._listener.stop()
+                self._listener = None
 
-        root.addHandler(queue_handler)
-        _initialised = True
+            for handler in self._handlers:
+                handler.flush()
+                handler.close()
+            self._handlers.clear()
 
-        # Emit the first record through the now-configured logger
-        _startup_log = logging.getLogger(f"{ROOT_LOGGER_NAME}.logger")
-        _startup_log.info(
-            "logging initialised",
-            extra={
-                "log_file": log_file_val,
-                "injected": injected_list,
-                "level": cfg.level,
-                "console": cfg.console_enabled,
-                "mode": "injected" if handlers is not None else "standard",
-            },
-        )
+            if self._queue_handler:
+                self._queue_handler.flush()
+                self._queue_handler.close()
+                root.removeHandler(self._queue_handler)
+                self._queue_handler = None
+
+            self._active = False
 
 
 # ---------------------------------------------------------------------------
@@ -313,8 +347,7 @@ def get_logger(name: str) -> logging.Logger:
     ----------
     name:
         Typically ``__name__`` of the calling module.
-        The "handforge." prefix is prepended automatically if absent,
-        so loggers created from outside the package still route correctly.
+        The "handforge." prefix is prepended automatically if absent.
 
     Returns
     -------
@@ -330,10 +363,6 @@ def get_logger(name: str) -> logging.Logger:
 def log_context(**kwargs: Any) -> Iterator[None]:
     """
     Context manager to inject ambient fields into all logs within this scope.
-
-    Example:
-        with log_context(track_id=42):
-            log.info("processing frame")  # JSON will include "track_id": 42
     """
     context = _LOG_CONTEXT.get() or {}
     token = _LOG_CONTEXT.set({**context, **kwargs})
@@ -341,33 +370,3 @@ def log_context(**kwargs: Any) -> Iterator[None]:
         yield
     finally:
         _LOG_CONTEXT.reset(token)
-
-
-def shutdown_logging() -> None:
-    """
-    Shut down the background listener and close all handlers.
-
-    Must be called at process exit to ensure final logs are flushed to disk.
-    """
-    global _initialised, _listener, _log_queue, _handlers
-    root = logging.getLogger(ROOT_LOGGER_NAME)
-
-    # 1. Stop the listener thread
-    if _listener:
-        _listener.stop()
-        _listener = None
-
-    # 2. Close the internal handlers (this is critical for Windows file locks)
-    for handler in _handlers:
-        handler.flush()
-        handler.close()
-    _handlers = []
-
-    # 3. Remove the QueueHandler from the root logger
-    for handler in root.handlers[:]:
-        handler.flush()
-        handler.close()
-        root.removeHandler(handler)
-
-    _log_queue = None
-    _initialised = False

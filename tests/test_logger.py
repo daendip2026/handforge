@@ -14,27 +14,21 @@ from typing import Literal
 
 import pytest
 
-import hand_tracker.logger as logger_module
 from hand_tracker.config import LoggingConfig
 from hand_tracker.logger import (
+    AsyncLoggerLifecycle,
     _JsonFormatter,
     get_logger,
     log_context,
-    setup_logging,
-    shutdown_logging,
 )
 
 
 @pytest.fixture(autouse=True)
 def reset_logger() -> Iterator[None]:
     """Ensure logger state is clean before and after every test."""
-    shutdown_logging()
     logging.getLogger("handforge").handlers.clear()
-    logger_module._initialised = False
     yield
-    shutdown_logging()
     logging.getLogger("handforge").handlers.clear()
-    logger_module._initialised = False
 
 
 def _make_cfg(
@@ -130,18 +124,20 @@ class TestSetupLogging:
     def test_log_file_created(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_cfg(tmp)
-            setup_logging(cfg)
+            lifecycle = AsyncLoggerLifecycle(cfg)
+            lifecycle.start()
             log_files = list(Path(tmp).glob("*.log"))
             assert len(log_files) == 1
-            shutdown_logging()
+            lifecycle.stop()
 
     def test_log_file_contains_valid_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_cfg(tmp)
-            setup_logging(cfg)
+            lifecycle = AsyncLoggerLifecycle(cfg)
+            lifecycle.start()
             log = get_logger("test.json_check")
             log.info("json validity check", extra={"key": "value"})
-            shutdown_logging()
+            lifecycle.stop()
 
             log_file = next(Path(tmp).glob("*.log"))
             lines = log_file.read_text(encoding="utf-8").strip().splitlines()
@@ -154,8 +150,9 @@ class TestSetupLogging:
     def test_stable_filename_no_timestamp(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_cfg(tmp)
-            setup_logging(cfg)
-            shutdown_logging()
+            lifecycle = AsyncLoggerLifecycle(cfg)
+            lifecycle.start()
+            lifecycle.stop()
             # Filename should be exactly handforge.log
             assert (Path(tmp) / "handforge.log").exists()
             assert not any("_20" in f.name for f in Path(tmp).glob("*.log"))
@@ -163,20 +160,22 @@ class TestSetupLogging:
     def test_idempotent_setup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_cfg(tmp)
-            setup_logging(cfg)
-            setup_logging(cfg)  # second call must be a no-op
+            lifecycle = AsyncLoggerLifecycle(cfg)
+            lifecycle.start()
+            lifecycle.start()  # second call must be a no-op
             root = logging.getLogger("handforge")
-            # Only one file handler should exist
+            # Only one QueueHandler should exist
             assert len(root.handlers) == 1
-            shutdown_logging()
+            lifecycle.stop()
 
     def test_extra_fields_written_to_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_cfg(tmp)
-            setup_logging(cfg)
+            lifecycle = AsyncLoggerLifecycle(cfg)
+            lifecycle.start()
             log = get_logger("test.extra")
             log.info("fps measurement", extra={"fps": 58.3, "latency_ms": 12.4})
-            shutdown_logging()
+            lifecycle.stop()
 
             log_file = next(Path(tmp).glob("*.log"))
             records = [
@@ -192,11 +191,12 @@ class TestSetupLogging:
     def test_unicode_and_emoji_support(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_cfg(tmp)
-            setup_logging(cfg)
+            lifecycle = AsyncLoggerLifecycle(cfg)
+            lifecycle.start()
             log = get_logger("test.unicode")
             msg = "안녕하세요 🚀 HandForge!"
             log.info(msg)
-            shutdown_logging()
+            lifecycle.stop()
 
             log_file = next(Path(tmp).glob("*.log"))
             content = log_file.read_text(encoding="utf-8")
@@ -210,20 +210,21 @@ class TestSetupLogging:
                 console_enabled=True,
             )
             # Verify internal list of handlers reflects the config
-            setup_logging(cfg)
-            from hand_tracker.logger import _handlers
+            lifecycle = AsyncLoggerLifecycle(cfg)
+            lifecycle.start()
 
             # 1 FileHandler + 1 RichHandler (inside the queue system)
-            assert len(_handlers) == 2
-            assert any(type(h).__name__ == "RichHandler" for h in _handlers)
-            shutdown_logging()
+            assert len(lifecycle._handlers) == 2
+            assert any(type(h).__name__ == "RichHandler" for h in lifecycle._handlers)
+            lifecycle.stop()
 
     def test_post_shutdown_stability(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_cfg(tmp)
-            setup_logging(cfg)
+            lifecycle = AsyncLoggerLifecycle(cfg)
+            lifecycle.start()
             log = get_logger("test.shutdown")
-            shutdown_logging()
+            lifecycle.stop()
 
             # Calling after shutdown should not raise exception (idempotent/safe)
             log.info("zombie log")
@@ -231,17 +232,18 @@ class TestSetupLogging:
     def test_thread_safe_initialization(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_cfg(tmp)
+            lifecycle = AsyncLoggerLifecycle(cfg)
 
             # Attempt to initialize from 10 threads at once
             with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [executor.submit(setup_logging, cfg) for _ in range(10)]
+                futures = [executor.submit(lifecycle.start) for _ in range(10)]
                 for f in futures:
                     f.result()  # ensure all threads finish
 
             root = logging.getLogger("handforge")
             # Only one QueueHandler should be attached
             assert len(root.handlers) == 1
-            shutdown_logging()
+            lifecycle.stop()
 
 
 class TestGetLogger:
@@ -265,14 +267,15 @@ class TestLogRotation:
                 backup_count=1,
                 console_enabled=False,
             )
-            setup_logging(cfg)
+            lifecycle = AsyncLoggerLifecycle(cfg)
+            lifecycle.start()
             log = get_logger("test.rotation")
 
             # Write enough logs to exceed 1024 bytes
             # Each record is ~150-200 bytes, so 10 logs will definitely trigger it
             for i in range(10):
                 log.info(f"rotation trigger message number {i}")
-            shutdown_logging()
+            lifecycle.stop()
 
             log_dir = Path(tmp)
             main_log = log_dir / "handforge.log"
@@ -301,7 +304,8 @@ class TestAsyncLogging:
             # Dependency Injection: Inject the slow handler directly.
             # If the logger is truly async, log.info() should return instantly
             # because the QueueHandler only puts the record into a memory queue.
-            setup_logging(cfg, handlers=[slow_handler])
+            lifecycle = AsyncLoggerLifecycle(cfg, handlers=[slow_handler])
+            lifecycle.start()
             log = get_logger("test.async")
 
             start_time = time.perf_counter()
@@ -312,4 +316,4 @@ class TestAsyncLogging:
 
             # Non-blocking should be nearly instantaneous (< 10ms typically)
             assert duration < 0.1  # Allowing margin for CI overhead
-            shutdown_logging()
+            lifecycle.stop()
