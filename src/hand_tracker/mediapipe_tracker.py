@@ -253,6 +253,9 @@ class FrameResult:
         Inherited from the source Frame — acquisition time.
     frame_index:
         Inherited from the source Frame.
+    is_mirrored:
+        Indicates if the source frame was horizontally flipped. Critical for
+        consistent coordinate mapping in Unity space.
     inference_time_us:
         Time spent inside mp_hands.process() in microseconds.
     """
@@ -260,6 +263,7 @@ class FrameResult:
     hands: tuple[RawHandResult, ...]
     timestamp_us: int
     frame_index: int
+    is_mirrored: bool
     inference_time_us: int
 
 
@@ -462,6 +466,7 @@ class MediaPipeTracker:
             hands=(),
             timestamp_us=frame.timestamp_us,
             frame_index=frame.frame_index,
+            is_mirrored=frame.is_mirrored,
             inference_time_us=0,
         )
 
@@ -498,6 +503,7 @@ class MediaPipeTracker:
                 hands=(),
                 timestamp_us=frame.timestamp_us,
                 frame_index=frame.frame_index,
+                is_mirrored=frame.is_mirrored,
                 inference_time_us=inference_time_us,
             )
 
@@ -513,6 +519,7 @@ class MediaPipeTracker:
                 hands=(),
                 timestamp_us=frame.timestamp_us,
                 frame_index=frame.frame_index,
+                is_mirrored=frame.is_mirrored,
                 inference_time_us=inference_time_us,
             )
 
@@ -565,5 +572,6 @@ class MediaPipeTracker:
             hands=tuple(detected_hands),
             timestamp_us=frame.timestamp_us,
             frame_index=frame.frame_index,
+            is_mirrored=frame.is_mirrored,
             inference_time_us=inference_time_us,
         )

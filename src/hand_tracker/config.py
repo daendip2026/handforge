@@ -80,6 +80,10 @@ class CameraConfig(HandForgeConfigModel):
         max_length=4,
         description="Video codec FOURCC code (e.g., MJPG, YUYV, H264)",
     )
+    mirror_input: bool = Field(
+        default=True,
+        description="Mirror the input frame horizontally (standard for webcams)",
+    )
 
 
 class MediaPipeConfig(HandForgeConfigModel):

@@ -93,11 +93,12 @@ def tracker_cfg() -> TrackerConfig:
 # ---------------------------------------------------------------------------
 
 
-def _make_frame(frame_index: int = 0) -> Frame:
+def _make_frame(frame_index: int = 0, is_mirrored: bool = True) -> Frame:
     return Frame(
         bgr=np.zeros((480, 640, 3), dtype=np.uint8),
         timestamp_us=TEST_TIMESTAMP_US,
         frame_index=frame_index,
+        is_mirrored=is_mirrored,
     )
 
 
@@ -358,13 +359,13 @@ class TestMediaPipeTrackerEdgeCases:
         with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
             # Test None bgr
             result_none = tracker.process(
-                Frame(bgr=None, timestamp_us=0, frame_index=0)  # type: ignore[arg-type]
+                Frame(bgr=None, timestamp_us=0, frame_index=0, is_mirrored=True)  # type: ignore[arg-type]
             )
             assert len(result_none.hands) == 0
 
             # Test empty bgr array
             result_empty = tracker.process(
-                Frame(bgr=np.array([]), timestamp_us=0, frame_index=0)
+                Frame(bgr=np.array([]), timestamp_us=0, frame_index=0, is_mirrored=True)
             )
             assert len(result_empty.hands) == 0
 
@@ -597,3 +598,33 @@ class TestMediaPipeTrackerInferenceQuality:
         assert hand.landmarks[0].wx == TEST_WORLD_X
         assert hand.landmarks[0].wy == TEST_WORLD_Y
         assert hand.landmarks[0].wz == TEST_WORLD_Z
+
+
+class TestMetadataPropagation:
+    """Validation of metadata persistence across the inference pipeline."""
+
+    def test_is_mirrored_flag_propagated(
+        self,
+        mock_hands_module: MagicMock,
+        mock_hands_instance: MagicMock,
+        tracker_cfg: TrackerConfig,
+    ) -> None:
+        """
+        Verify that the is_mirrored flag is correctly passed from Frame to FrameResult.
+
+        Engineering Risk: Coordinate mirroring is a critical metadata bit for Unity.
+        If this flag is lost or inverted in the pipeline, the 3D hands in VR/AR will
+        move in the opposite direction of the user's actual hands, causing severe
+        motion sickness or breaking interaction logic.
+        """
+        mock_hands_instance.process.return_value = _make_mp_results([("Right", 0.9)])
+        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
+
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
+            # 1. Test mirroring active
+            res_true = tracker.process(_make_frame(is_mirrored=True))
+            assert res_true.is_mirrored is True
+
+            # 2. Test mirroring inactive
+            res_false = tracker.process(_make_frame(is_mirrored=False))
+            assert res_false.is_mirrored is False

@@ -99,6 +99,7 @@ class Frame:
     bgr: npt.NDArray[np.uint8]
     timestamp_us: int
     frame_index: int
+    is_mirrored: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,6 +441,7 @@ class WebcamCapture:
                 bgr=bgr_uint8,
                 timestamp_us=now_us,
                 frame_index=frame_index,
+                is_mirrored=self._cfg.mirror_input,
             )
             self._push_to_queue(frame)
             frame_index += 1

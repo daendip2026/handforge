@@ -16,6 +16,7 @@ camera:
   jitter_threshold_multiplier: 1.5     # Alert if frame interval > N * expected (1.0-5.0)
   backend: "AUTO"                      # AUTO | ANY | DSHOW | MSMF | V4L2 | AVFOUNDATION
   fourcc: "MJPG"                       # Video codec format (e.g., MJPG, YUYV, H264)
+  mirror_input: true                   # Mirror the input frame horizontally (standard for webcams)
 
 mediapipe:
   max_num_hands: 1                    # single hand only
