@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from hand_tracker.config import (
     AppConfig,
     CameraConfig,
+    Handedness,
     LoggingConfig,
     MediaPipeConfig,
     TrackerConfig,
@@ -112,12 +113,19 @@ class TestMediaPipeConfig:
 class TestTrackerConfig:
     def test_primary_hand_options(self) -> None:
         # Should accept Right, Left, Both option
-        assert TrackerConfig(primary_hand="Right").primary_hand == "Right"
-        assert TrackerConfig(primary_hand="Left").primary_hand == "Left"
-        assert TrackerConfig(primary_hand="Both").primary_hand == "Both"
+        assert (
+            TrackerConfig(primary_hand=Handedness.RIGHT).primary_hand
+            == Handedness.RIGHT
+        )
+        assert (
+            TrackerConfig(primary_hand=Handedness.LEFT).primary_hand == Handedness.LEFT
+        )
+        assert (
+            TrackerConfig(primary_hand=Handedness.BOTH).primary_hand == Handedness.BOTH
+        )
 
         with pytest.raises(ValidationError):
-            TrackerConfig(primary_hand="None")  # type: ignore
+            TrackerConfig(primary_hand="None")  # type: ignore[arg-type]
 
     def test_invalid_fps(self) -> None:
         with pytest.raises(ValidationError):
@@ -171,6 +179,23 @@ class TestAppConfig:
     def test_extra_fields_forbidden(self) -> None:
         with pytest.raises(ValidationError):
             AppConfig(unknown_field="value")  # type: ignore
+
+    def test_both_requires_max_hands_2(self) -> None:
+        """Verify that primary_hand='Both' enforces max_num_hands >= 2."""
+        with pytest.raises(ValidationError, match="max_num_hands must be at least 2"):
+            AppConfig(
+                tracker=TrackerConfig(primary_hand=Handedness.BOTH),
+                mediapipe=MediaPipeConfig(max_num_hands=1),
+            )
+
+    def test_both_valid_with_max_hands_2(self) -> None:
+        """Verify that primary_hand='Both' is valid when max_num_hands is 2."""
+        cfg = AppConfig(
+            tracker=TrackerConfig(primary_hand=Handedness.BOTH),
+            mediapipe=MediaPipeConfig(max_num_hands=2),
+        )
+        assert cfg.tracker.primary_hand == Handedness.BOTH
+        assert cfg.mediapipe.max_num_hands == 2
 
 
 class TestYamlLoading:

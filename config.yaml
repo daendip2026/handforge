@@ -23,6 +23,7 @@ mediapipe:
   min_detection_confidence: 0.7
   min_tracking_confidence: 0.5
   static_image_mode: false            # false = video stream mode (lower latency)
+  warmup_frame_count: 5               # discard first N frames for JIT warmup
 
 tracker:
   target_fps: 30                      # Minimum acceptable FPS

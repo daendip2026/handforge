@@ -13,6 +13,7 @@ Call load_config() once at process startup and pass it through dependency inject
 
 from __future__ import annotations
 
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -43,6 +44,14 @@ class HandForgeConfigModel(BaseModel):
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class Handedness(StrEnum):
+    """Enumeration for hand side classification."""
+
+    LEFT = "Left"
+    RIGHT = "Right"
+    BOTH = "Both"
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +91,7 @@ class MediaPipeConfig(HandForgeConfigModel):
     min_detection_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
     min_tracking_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     static_image_mode: bool = Field(default=False)
+    warmup_frame_count: int = Field(default=5, ge=0)
 
     @field_validator("model_complexity", mode="before")
     @classmethod
@@ -100,7 +110,7 @@ class TrackerConfig(HandForgeConfigModel):
     """Tracker runtime behaviour."""
 
     target_fps: int = Field(default=30, ge=1, le=120)
-    primary_hand: Literal["Right", "Left", "Both"] = Field(default="Right")
+    primary_hand: Handedness = Field(default=Handedness.RIGHT)
 
 
 class WebSocketConfig(HandForgeConfigModel):
@@ -175,6 +185,15 @@ class AppConfig(BaseSettings):
                 "model_complexity must be 1 to enable world_landmarks. "
                 "world_position extraction is required."
             )
+
+        if (
+            self.tracker.primary_hand == Handedness.BOTH
+            and self.mediapipe.max_num_hands < 2
+        ):
+            raise ValueError(
+                "max_num_hands must be at least 2 when primary_hand is 'Both'."
+            )
+
         return self
 
     @classmethod
