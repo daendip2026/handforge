@@ -134,6 +134,20 @@ class TestTrackerConfig:
         with pytest.raises(ValidationError):
             TrackerConfig(target_fps=200)
 
+    def test_fps_window_size_validation(self) -> None:
+        # Default
+        assert TrackerConfig().fps_window_size == 30
+
+        # Valid boundaries
+        assert TrackerConfig(fps_window_size=2).fps_window_size == 2
+        assert TrackerConfig(fps_window_size=300).fps_window_size == 300
+
+        # Invalid boundaries
+        with pytest.raises(ValidationError):
+            TrackerConfig(fps_window_size=1)
+        with pytest.raises(ValidationError):
+            TrackerConfig(fps_window_size=301)
+
 
 class TestNetworkConfig:
     """Critical tests for network availability (Port ranges)."""

@@ -29,6 +29,7 @@ mediapipe:
 tracker:
   target_fps: 30                      # Minimum acceptable FPS
   primary_hand: "Right"               # "Right" | "Left"
+  fps_window_size: 30                 # Number of frames for sliding-window (smoothing)
 
 # Networking & Integration settings
 output:

@@ -115,6 +115,7 @@ class TrackerConfig(HandForgeConfigModel):
 
     target_fps: int = Field(default=30, ge=1, le=120)
     primary_hand: Handedness = Field(default=Handedness.RIGHT)
+    fps_window_size: int = Field(default=30, ge=2, le=300)
 
 
 class WebSocketConfig(HandForgeConfigModel):
