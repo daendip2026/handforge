@@ -23,4 +23,5 @@ repos:
           - pydantic>=2.6
           - pydantic-settings>=2.2
           - types-PyYAML>=6.0
+          - pytest-benchmark>=4.0
         args: [--config-file=pyproject.toml]

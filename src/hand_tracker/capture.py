@@ -195,8 +195,32 @@ def _open_device(cfg: CameraConfig) -> cv2.VideoCapture:
         ok = cap.set(prop_id, value)
         if not ok:
             log.warning(
-                "failed to set camera property",
+                "failed to request camera property",
                 extra={"property": name, "requested": value},
+            )
+
+        # Standard cap.set() can return True even if the hardware silently
+        # rejected or modified the value to the nearest supported mode.
+        # We MUST re-read the property to verify what the driver actually negotiated.
+        actual = cap.get(prop_id)
+
+        # CRITICAL VALIDATION: Resolution must match exactly.
+        # If the driver silently falls back to a different resolution, all
+        # downstream MediaPipe and Unity coordinate mappings will be scaled
+        # incorrectly, leading to broken tracking.
+        if name in ("width", "height") and int(actual) != int(value):
+            cap.release()
+            raise CaptureError(
+                f"Camera refused mandatory {name}. Requested {value}, but got {actual}. "
+                "Hardware limitation reached."
+            )
+
+        # FPS Verification: Many drivers vary slightly (e.g. 29.97 vs 30).
+        # We allow a 10% tolerance but log a warning if it's too far off.
+        if name == "fps" and actual < value * (1.0 - 0.1):
+            log.warning(
+                "camera driver negotiated lower FPS than requested",
+                extra={"requested": value, "actual": actual},
             )
 
     return cap
@@ -241,7 +265,11 @@ class _TimeAnchor:
 
     @classmethod
     def now(cls) -> _TimeAnchor:
-        # Sample both clocks as close together as possible
+        """
+        Create a new time anchor for high-resolution performance timing.
+
+        Attempts to sample both clocks with minimal jitter between reads.
+        """
         perf = time.perf_counter()
         wall = time.time()
         return cls(wall_us=int(wall * 1_000_000), perf_origin=perf)
@@ -366,10 +394,19 @@ class WebcamCapture:
     ) -> None:
         # Request grace shutdown of the background thread
         self._stop_event.set()
+
+        # CRITICAL: Releasing the hardware handle interrupts any blocking
+        # cap.read() call, allowing the worker thread to exit immediately.
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+
         if self._worker_thread is not None:
-            self._worker_thread.join(timeout=3.0)
+            # Interruption is now near-instant, so we can use a smaller timeout.
+            self._worker_thread.join(timeout=1.0)
             self._worker_thread = None
-        self._cap = None
+
+        log.info("capture device released", extra={"index": self._cfg.index})
 
     # ------------------------------------------------------------------
     # Worker Thread (Producer)
@@ -446,8 +483,7 @@ class WebcamCapture:
             self._push_to_queue(frame)
             frame_index += 1
 
-        self._cap.release()
-        log.info("capture device released")
+        log.debug("capture worker thread finished")
 
     # ------------------------------------------------------------------
     # Iterator protocol (Consumer)

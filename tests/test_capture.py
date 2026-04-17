@@ -5,9 +5,14 @@ from __future__ import annotations
 import platform
 import queue
 import threading
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-import numpy as np  # type: ignore[import-not-found]
+if TYPE_CHECKING:
+    from pytest_benchmark.fixture import BenchmarkFixture
+
+import cv2
+import numpy as np
 import pytest
 
 from hand_tracker.capture import (
@@ -216,9 +221,26 @@ class TestWebcamCaptureOpen:
 
         # System should not crash (no exception raised), but must log exactly this warning
         mock_log.warning.assert_called_with(
-            "failed to set camera property",
+            "failed to request camera property",
             extra={"property": "auto_focus", "requested": 0},
         )
+
+    def test_mandatory_property_failure_raises(
+        self,
+        mock_cfg: CameraConfig,
+        patch_cv2: MagicMock,
+    ) -> None:
+        """Verify that failure to set Width/Height results in a CaptureError."""
+        # Simulate driver refusing the requested width
+        patch_cv2.get.side_effect = lambda prop: {
+            cv2.CAP_PROP_FRAME_WIDTH: 320.0,  # Negotiation failed (requested 640)
+        }.get(prop, 0.0)
+
+        with (
+            pytest.raises(CaptureError, match="Camera refused mandatory width"),
+            WebcamCapture(mock_cfg),
+        ):
+            pass
 
 
 class TestWebcamCaptureIteration:
@@ -278,7 +300,8 @@ class TestWebcamCaptureIteration:
         monkeypatch.setattr("hand_tracker.capture.log", mock_log)
 
         def jittery_read() -> tuple[bool, np.ndarray]:
-            time.sleep(0.06)  # 60ms delay (expected ~33ms, logs if >50ms)
+            # Simulate a 60ms delay that exceeds the threshold
+            time.sleep(0.06)
             return (True, np.zeros((480, 640, 3), dtype=np.uint8))
 
         patch_cv2.read.side_effect = jittery_read
@@ -297,7 +320,10 @@ class TestWebcamCaptureIteration:
     def test_concurrent_close_during_iteration(
         self, mock_cfg: CameraConfig, patch_cv2: MagicMock
     ) -> None:
-        with WebcamCapture(mock_cfg) as wc:
+        """Verify that the iterator exits cleanly when the device is closed from another thread."""
+        wc = WebcamCapture(mock_cfg)
+        wc.__enter__()
+        try:
             first_frame_seen = threading.Event()
             exc_queue: queue.Queue[Exception] = queue.Queue()
 
@@ -311,24 +337,32 @@ class TestWebcamCaptureIteration:
             thread = threading.Thread(target=run_iterator, daemon=True)
             thread.start()
 
-            # Wait for at least one frame to be processed
-            assert first_frame_seen.wait(timeout=1.0)
+            # Wait for at least one frame to be processed.
+            # We use 0.5s to ensure the producer thread has time to start and
+            # push frames even under high OS CPU load/scheduling jitter.
+            assert first_frame_seen.wait(timeout=0.5)
 
             # Concurrently close the device while the thread is iterating
             wc.__exit__(None, None, None)
 
-            thread.join(timeout=1.0)
+            # Wait for thread to recognize stop event.
+            # On Windows, thread destruction and signal propagation can take
+            # up to 15-50ms due to timer resolution. 0.2s is a safe buffer
+            # for deterministic CI/CD runs.
+            thread.join(timeout=0.2)
             assert not thread.is_alive()
 
             # Surface any exceptions swallowed by the thread
             if not exc_queue.empty():
-                pytest.fail(f"Iterator thread failed with exception: {exc_queue.get()}")
+                pytest.fail(f"Iterator thread failed: {exc_queue.get()}")
+        finally:
+            # Safety exit if it wasn't already called
+            if wc._cap is not None:
+                wc.__exit__(None, None, None)
 
     def test_recovers_from_sporadic_read_failures(
         self, mock_cfg: CameraConfig, patch_cv2: MagicMock
     ) -> None:
-        import time
-
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
 
         class MockRead:
@@ -339,8 +373,6 @@ class TestWebcamCaptureIteration:
                 self.calls += 1
                 if self.calls in (2, 3):
                     return (False, None)
-                # Gentle sleep to prevent queue flooding
-                time.sleep(0.005)
                 return (True, frame)
 
         patch_cv2.read.side_effect = MockRead()
@@ -354,3 +386,23 @@ class TestWebcamCaptureIteration:
         assert f0.frame_index >= 0
         assert f1.frame_index > f0.frame_index
         assert f2.frame_index > f1.frame_index
+
+
+class TestWebcamCapturePerformance:
+    """Benchmark tests for the producer-consumer transfer latency."""
+
+    @pytest.mark.benchmark(group="capture")
+    def test_benchmark_frame_acquisition_latency(
+        self,
+        benchmark: BenchmarkFixture,
+        mock_cfg: CameraConfig,
+        patch_cv2: MagicMock,
+    ) -> None:
+        """Measure the latency of acquiring a frame from the async queue."""
+        with WebcamCapture(mock_cfg) as wc:
+
+            def _get_frame() -> None:
+                next(iter(wc))
+
+            # Use realistic iterations/rounds for threaded I/O to avoid hangs.
+            benchmark.pedantic(_get_frame, iterations=1, rounds=100, warmup_rounds=10)

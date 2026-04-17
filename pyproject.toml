@@ -87,7 +87,7 @@ mypy_path = "src"
 
 # mediapipe ships no stubs; silence missing imports
 [[tool.mypy.overrides]]
-module = ["mediapipe.*", "cv2.*", "pytest.*", "rich.*", "numpy.*"]
+module = ["mediapipe.*", "cv2.*", "pytest.*", "rich.*", "numpy.*", "pytest_benchmark.*"]
 ignore_missing_imports = true
 
 # Silence unused ignore warnings in tests to support platform-specific stubs
@@ -95,6 +95,7 @@ ignore_missing_imports = true
 module = "tests.*"
 warn_unused_ignores = false
 disallow_untyped_decorators = false
+disallow_untyped_calls = false
 
 # ---------------------------------------------------------------------------
 # Pytest
