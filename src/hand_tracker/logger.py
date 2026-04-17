@@ -53,7 +53,7 @@ import threading
 from collections.abc import Iterator
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -143,7 +143,8 @@ class _JsonFormatter(logging.Formatter):
             "message": record.message,
         }
 
-        # 1. Merge caller-supplied extra fields, skipping reserved/internal keys
+        # 1. Merge all attributes from the record, skipping reserved/internal keys.
+        # This includes fields captured from log_context by the filter in the producer thread.
         for key, value in record.__dict__.items():
             if key in self._RECORD_ATTRS or key in self._RESERVED:
                 continue
@@ -151,11 +152,12 @@ class _JsonFormatter(logging.Formatter):
                 continue
             payload[key] = value
 
-        # 2. Merge ambient context (ContextVar)
+        # 2. Merge ambient context (ContextVar) as a fallback.
+        # This ensures direct usage and same-thread testing still see the context.
         context = _LOG_CONTEXT.get()
         if context:
             for key, value in context.items():
-                if key not in self._RESERVED:
+                if key not in self._RESERVED and key not in payload:
                     payload[key] = value
 
         # 3. Handle exceptions with structure
@@ -215,6 +217,18 @@ class ZeroLatencyQueueHandler(logging.handlers.QueueHandler):
         super().__init__(q)
         self._queue: queue.Queue[Any] = q
 
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        """
+        Capture the caller's ContextVar state and inject it into the record
+        BEFORE it leaves the thread. This is critical for async context stability.
+        """
+        context = _LOG_CONTEXT.get()
+        if context:
+            for key, value in context.items():
+                if not hasattr(record, key):
+                    setattr(record, key, value)
+        return cast(logging.LogRecord, super().prepare(record))
+
     def enqueue(self, record: logging.LogRecord) -> None:
         try:
             self._queue.put_nowait(record)
@@ -239,10 +253,14 @@ class AsyncLoggerLifecycle:
     """
 
     def __init__(
-        self, cfg: LoggingConfig, handlers: list[logging.Handler] | None = None
+        self,
+        cfg: LoggingConfig,
+        handlers: list[logging.Handler] | None = None,
+        queue_size: int | None = None,
     ) -> None:
         self.cfg = cfg
         self._injected_handlers = handlers
+        self._queue_size = queue_size or cfg.max_queue_size
         self._listener: logging.handlers.QueueListener | None = None
         self._queue_handler: ZeroLatencyQueueHandler | None = None
         self._handlers: list[logging.Handler] = []
@@ -284,7 +302,7 @@ class AsyncLoggerLifecycle:
                     self._handlers.append(_make_rich_handler())
 
             # Bounded queue is critical for OOM defense!
-            log_queue: queue.Queue[Any] = queue.Queue(maxsize=10000)
+            log_queue: queue.Queue[Any] = queue.Queue(maxsize=self._queue_size)
             self._queue_handler = ZeroLatencyQueueHandler(log_queue)
 
             self._listener = logging.handlers.QueueListener(
@@ -317,6 +335,14 @@ class AsyncLoggerLifecycle:
             root = logging.getLogger(ROOT_LOGGER_NAME)
 
             if self._listener:
+                # If the queue is full, QueueListener.stop() will crash while
+                # trying to enqueue the sentinel. We force a space if needed.
+                # Accessing internal queue from listener: self._listener.queue
+                q = getattr(self._listener, "queue", None)
+                if q and hasattr(q, "full") and q.full():
+                    with contextlib.suppress(Exception):
+                        q.get_nowait()
+
                 self._listener.stop()
                 self._listener = None
 

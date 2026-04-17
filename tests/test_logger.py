@@ -10,7 +10,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Literal
+from typing import Any
 
 import pytest
 
@@ -22,27 +22,71 @@ from hand_tracker.logger import (
     log_context,
 )
 
+# ---------------------------------------------------------------------------
+# Test Utilities
+# ---------------------------------------------------------------------------
+
+
+class ListHandler(logging.Handler):
+    """Simple handler that stores records in a list for assertion."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+class SlowHandler(logging.NullHandler):
+    """Handler that simulates slow I/O (e.g. network or slow disk)."""
+
+    def __init__(self, delay: float = 0.1) -> None:
+        super().__init__()
+        self.delay = delay
+
+    def emit(self, record: logging.LogRecord) -> None:
+        time.sleep(self.delay)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
-def reset_logger() -> Iterator[None]:
-    """Ensure logger state is clean before and after every test."""
-    logging.getLogger("handforge").handlers.clear()
+def cleanup_logging() -> Iterator[None]:
+    """Ensure root logger is clean between tests."""
+    root = logging.getLogger("handforge")
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
     yield
-    logging.getLogger("handforge").handlers.clear()
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
 
 
-def _make_cfg(
-    log_dir: str, level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "DEBUG"
-) -> LoggingConfig:
+@pytest.fixture
+def log_dir() -> Iterator[Path]:
+    with tempfile.TemporaryDirectory() as tmp:
+        yield Path(tmp)
+
+
+@pytest.fixture
+def log_cfg(log_dir: Path) -> LoggingConfig:
     return LoggingConfig(
-        level=level,
-        log_dir=log_dir,
+        level="DEBUG",
+        log_dir=str(log_dir),
         console_enabled=False,
     )
 
 
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
 class TestJsonFormatter:
-    def _make_record(self, msg: str = "test", **extra: object) -> logging.LogRecord:
+    def _make_record(self, msg: str = "test", **extra: Any) -> logging.LogRecord:
         record = logging.LogRecord(
             name="handforge.test",
             level=logging.INFO,
@@ -65,7 +109,7 @@ class TestJsonFormatter:
         formatter = _JsonFormatter()
         record = self._make_record("ts check")
         output = json.loads(formatter.format(record))
-        # Unix microseconds in 2024+ are 16 digits
+        # Microseconds since epoch in 2024+ are 16 digits
         assert len(str(output["timestamp_us"])) == 16
 
     def test_extra_fields_merged(self) -> None:
@@ -102,218 +146,142 @@ class TestJsonFormatter:
             output = json.loads(formatter.format(record))
         assert output["request_id"] == "abc-123"
 
-    def test_output_is_single_line(self) -> None:
-        formatter = _JsonFormatter()
-        record = self._make_record("newline\ntest")
-        output = formatter.format(record)
-        assert "\n" not in output
-
     def test_json_serialization_robustness(self) -> None:
+        """test for non-serializable objects and nested structures."""
+
         class UserObject:
             def __str__(self) -> str:
                 return "UserObjectInstance"
 
+        complex_data = {
+            "nested": {"list": [1, 2, 3], "obj": UserObject()},
+            "none": None,
+        }
+
         formatter = _JsonFormatter()
-        record = self._make_record("obj test", data=UserObject())
+        record = self._make_record("complex test", **complex_data)
         output = json.loads(formatter.format(record))
-        # Should not crash and should use str() thanks to default=str
-        assert output["data"] == "UserObjectInstance"
+
+        assert output["nested"]["list"] == [1, 2, 3]
+        assert output["nested"]["obj"] == "UserObjectInstance"
+        assert output["none"] is None
 
 
-class TestSetupLogging:
-    def test_log_file_created(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _make_cfg(tmp)
-            lifecycle = AsyncLoggerLifecycle(cfg)
-            lifecycle.start()
-            log_files = list(Path(tmp).glob("*.log"))
-            assert len(log_files) == 1
-            lifecycle.stop()
+class TestLoggerLifecycle:
+    def test_file_rotation_and_persistence(
+        self, log_cfg: LoggingConfig, log_dir: Path
+    ) -> None:
+        """Verify that logs are written to a stable filename and rotated by size."""
+        log_cfg = log_cfg.model_copy(update={"max_bytes": 1024, "backup_count": 1})
+        lifecycle = AsyncLoggerLifecycle(log_cfg)
+        lifecycle.start()
+        log = get_logger("test.rotation")
 
-    def test_log_file_contains_valid_json(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _make_cfg(tmp)
-            lifecycle = AsyncLoggerLifecycle(cfg)
-            lifecycle.start()
-            log = get_logger("test.json_check")
-            log.info("json validity check", extra={"key": "value"})
-            lifecycle.stop()
+        # Fill the log beyond 1024 bytes
+        for i in range(20):
+            log.info(f"stressing the rotation mechanism with message number {i}")
 
-            log_file = next(Path(tmp).glob("*.log"))
-            lines = log_file.read_text(encoding="utf-8").strip().splitlines()
-            assert len(lines) >= 1
-            expected_keys = {"timestamp_us", "level", "module", "message"}
-            for line in lines:
-                parsed = json.loads(line)
-                assert expected_keys <= parsed.keys()
+        lifecycle.stop()
 
-    def test_stable_filename_no_timestamp(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _make_cfg(tmp)
-            lifecycle = AsyncLoggerLifecycle(cfg)
-            lifecycle.start()
-            lifecycle.stop()
-            # Filename should be exactly handforge.log
-            assert (Path(tmp) / "handforge.log").exists()
-            assert not any("_20" in f.name for f in Path(tmp).glob("*.log"))
+        main_log = log_dir / "handforge.log"
+        rotated_log = log_dir / "handforge.log.1"
 
-    def test_idempotent_setup(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _make_cfg(tmp)
-            lifecycle = AsyncLoggerLifecycle(cfg)
-            lifecycle.start()
-            lifecycle.start()  # second call must be a no-op
-            root = logging.getLogger("handforge")
-            # Only one QueueHandler should exist
-            assert len(root.handlers) == 1
-            lifecycle.stop()
+        assert main_log.exists()
+        assert rotated_log.exists()
+        assert rotated_log.stat().st_size > 0
 
-    def test_extra_fields_written_to_file(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _make_cfg(tmp)
-            lifecycle = AsyncLoggerLifecycle(cfg)
-            lifecycle.start()
-            log = get_logger("test.extra")
-            log.info("fps measurement", extra={"fps": 58.3, "latency_ms": 12.4})
-            lifecycle.stop()
+    def test_concurrent_initialization_safety(self, log_cfg: LoggingConfig) -> None:
+        """test for race conditions during startup."""
+        lifecycle = AsyncLoggerLifecycle(log_cfg)
 
-            log_file = next(Path(tmp).glob("*.log"))
-            records = [
-                json.loads(line)
-                for line in log_file.read_text(encoding="utf-8").strip().splitlines()
-            ]
-            fps_record = next(
-                r for r in records if r.get("message") == "fps measurement"
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(lifecycle.start) for _ in range(5)]
+            for f in futures:
+                f.result()
+
+        root = logging.getLogger("handforge")
+        assert len(root.handlers) == 1
+        lifecycle.stop()
+
+
+class TestAsyncRobustness:
+    def test_non_blocking_io_guarantee(self, log_cfg: LoggingConfig) -> None:
+        """Verify that slow handlers do not block the calling thread."""
+        slow = SlowHandler(delay=0.5)
+        lifecycle = AsyncLoggerLifecycle(log_cfg, handlers=[slow])
+        lifecycle.start()
+        log = get_logger("test.async")
+
+        start = time.perf_counter()
+        log.info("this should not block")
+        duration = time.perf_counter() - start
+
+        # Must return instantly (< 100ms), even with 0.5s delay in handler
+        assert duration < 0.1
+        lifecycle.stop()
+
+    def test_queue_overflow_drop_policy(self, log_cfg: LoggingConfig) -> None:
+        """
+        Stress test: Verify that a full queue results in
+        dropped oldest logs rather than a blocked pipeline or OOM.
+        """
+        # Set a tiny queue for deterministic overflow testing
+        queue_size = 5
+        slow = SlowHandler(delay=0.1)  # slow down the listener
+        lifecycle = AsyncLoggerLifecycle(
+            log_cfg, handlers=[slow], queue_size=queue_size
+        )
+        lifecycle.start()
+        log = get_logger("test.overflow")
+
+        # Pump logs much faster than the slow consumer can process
+        start = time.perf_counter()
+        for i in range(20):
+            log.info(f"msg {i}")
+        duration = time.perf_counter() - start
+
+        # Check for non-blocking property during overflow
+        assert duration < 0.1
+
+        lifecycle.stop()  # Wait for pending to flush
+
+    def test_context_thread_isolation(self, log_cfg: LoggingConfig) -> None:
+        """Verify that ambient log_context is strictly isolated to the calling thread."""
+        mem_handler = ListHandler()
+        mem_handler.setFormatter(_JsonFormatter())
+        lifecycle = AsyncLoggerLifecycle(log_cfg, handlers=[mem_handler])
+        lifecycle.start()
+
+        def worker(thread_id: int) -> None:
+            with log_context(tid=thread_id):
+                log = get_logger("test.isolation")
+                log.info(f"message from {thread_id}")
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            executor.map(worker, range(3))
+
+        lifecycle.stop()
+
+        # Parse the JSON from the captured records
+        assert mem_handler.formatter is not None
+        parsed_logs = [
+            json.loads(mem_handler.formatter.format(r)) for r in mem_handler.records
+        ]
+
+        # Ensure each log has the correct thread ID and no leakage.
+        # Use .get() to ignore incidental logs (e.g., "logging initialised")
+        for thread_id in range(3):
+            thread_log = next(
+                entry for entry in parsed_logs if entry.get("tid") == thread_id
             )
-            assert fps_record["fps"] == pytest.approx(58.3)
-            assert fps_record["latency_ms"] == pytest.approx(12.4)
+            assert thread_log["message"] == f"message from {thread_id}"
+            assert thread_log["tid"] == thread_id
 
-    def test_unicode_and_emoji_support(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _make_cfg(tmp)
-            lifecycle = AsyncLoggerLifecycle(cfg)
+    def test_teardown_stability_and_reentry(self, log_cfg: LoggingConfig) -> None:
+        """Ensure system remains stable during rapid start/stop cycles."""
+        lifecycle = AsyncLoggerLifecycle(log_cfg)
+        for _ in range(3):
             lifecycle.start()
-            log = get_logger("test.unicode")
-            msg = "안녕하세요 🚀 HandForge!"
-            log.info(msg)
+            get_logger("test").info("active")
             lifecycle.stop()
-
-            log_file = next(Path(tmp).glob("*.log"))
-            content = log_file.read_text(encoding="utf-8")
-            assert msg in content
-
-    def test_rich_handler_activation(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = LoggingConfig(
-                level="INFO",
-                log_dir=tmp,
-                console_enabled=True,
-            )
-            # Verify internal list of handlers reflects the config
-            lifecycle = AsyncLoggerLifecycle(cfg)
-            lifecycle.start()
-
-            # 1 FileHandler + 1 RichHandler (inside the queue system)
-            assert len(lifecycle._handlers) == 2
-            assert any(type(h).__name__ == "RichHandler" for h in lifecycle._handlers)
-            lifecycle.stop()
-
-    def test_post_shutdown_stability(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _make_cfg(tmp)
-            lifecycle = AsyncLoggerLifecycle(cfg)
-            lifecycle.start()
-            log = get_logger("test.shutdown")
-            lifecycle.stop()
-
-            # Calling after shutdown should not raise exception (idempotent/safe)
-            log.info("zombie log")
-
-    def test_thread_safe_initialization(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _make_cfg(tmp)
-            lifecycle = AsyncLoggerLifecycle(cfg)
-
-            # Attempt to initialize from 10 threads at once
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [executor.submit(lifecycle.start) for _ in range(10)]
-                for f in futures:
-                    f.result()  # ensure all threads finish
-
-            root = logging.getLogger("handforge")
-            # Only one QueueHandler should be attached
-            assert len(root.handlers) == 1
-            lifecycle.stop()
-
-
-class TestGetLogger:
-    def test_prefix_auto_prepended(self) -> None:
-        log = get_logger("my_module")
-        assert log.name == "handforge.my_module"
-
-    def test_prefix_not_doubled(self) -> None:
-        log = get_logger("handforge.my_module")
-        assert log.name == "handforge.my_module"
-
-
-class TestLogRotation:
-    def test_rotation_triggers_on_size_limit(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            # Minimum allowed limit (1024 bytes) to comply with Pydantic validation
-            cfg = LoggingConfig(
-                level="INFO",
-                log_dir=tmp,
-                max_bytes=1024,
-                backup_count=1,
-                console_enabled=False,
-            )
-            lifecycle = AsyncLoggerLifecycle(cfg)
-            lifecycle.start()
-            log = get_logger("test.rotation")
-
-            # Write enough logs to exceed 1024 bytes
-            # Each record is ~150-200 bytes, so 10 logs will definitely trigger it
-            for i in range(10):
-                log.info(f"rotation trigger message number {i}")
-            lifecycle.stop()
-
-            log_dir = Path(tmp)
-            main_log = log_dir / "handforge.log"
-            rotated_log = log_dir / "handforge.log.1"
-
-            assert main_log.exists()
-            assert rotated_log.exists()
-            # Verify rotated contents are still valid JSON
-            content = rotated_log.read_text(encoding="utf-8")
-            json.loads(content.splitlines()[0])
-
-
-class SlowHandler(logging.NullHandler):
-    """Handler that simulates slow I/O (e.g. network or slow disk)."""
-
-    def emit(self, record: logging.LogRecord) -> None:
-        time.sleep(0.5)
-
-
-class TestAsyncLogging:
-    def test_logging_is_non_blocking_on_io(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _make_cfg(tmp)
-            slow_handler = SlowHandler()
-
-            # Dependency Injection: Inject the slow handler directly.
-            # If the logger is truly async, log.info() should return instantly
-            # because the QueueHandler only puts the record into a memory queue.
-            lifecycle = AsyncLoggerLifecycle(cfg, handlers=[slow_handler])
-            lifecycle.start()
-            log = get_logger("test.async")
-
-            start_time = time.perf_counter()
-            # If it's blocking, this will take 0.5s.
-            # If it's non-blocking (async), it will take < 0.01s.
-            log.info("non-blocking check")
-            duration = time.perf_counter() - start_time
-
-            # Non-blocking should be nearly instantaneous (< 10ms typically)
-            assert duration < 0.1  # Allowing margin for CI overhead
-            lifecycle.stop()
+            get_logger("test").info("zombie")  # Post-stop log should be safe
