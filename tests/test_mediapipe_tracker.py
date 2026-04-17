@@ -7,8 +7,11 @@ All tests mock the mediapipe import surface; no actual inference runs.
 
 from __future__ import annotations
 
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 from unittest.mock import MagicMock, PropertyMock, create_autospec
+
+if TYPE_CHECKING:
+    from pytest_benchmark.fixture import BenchmarkFixture
 
 import numpy as np
 import pytest
@@ -387,6 +390,58 @@ class TestMediaPipeTrackerEdgeCases:
         ):
             tracker.process(_make_frame())
 
+    def test_malformed_landmark_count(
+        self,
+        mock_hands_module: MagicMock,
+        mock_hands_instance: MagicMock,
+        tracker_cfg: TrackerConfig,
+    ) -> None:
+        """Verify that MediaPipeInferenceError is raised if landmark count is not 21."""
+        # Create a mock with only 5 landmarks
+        mock_results = _make_mp_results([("Right", 0.9)])
+        type(mock_results).multi_hand_landmarks = PropertyMock(
+            return_value=[_make_landmark_list(count=5)]
+        )
+        type(mock_results).multi_hand_world_landmarks = PropertyMock(
+            return_value=[_make_landmark_list(count=5)]
+        )
+
+        mock_hands_instance.process.return_value = mock_results
+        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
+
+        with (
+            MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker,
+            pytest.raises(MediaPipeInferenceError, match="Expected 21 landmarks"),
+        ):
+            tracker.process(_make_frame())
+
+    def test_inconsistent_side_lengths(
+        self,
+        mock_hands_module: MagicMock,
+        mock_hands_instance: MagicMock,
+        tracker_cfg: TrackerConfig,
+    ) -> None:
+        """Verify error handling when image and world landmark lists have different lengths."""
+        mock_results = _make_mp_results([("Right", 0.9)])
+        # Hand 0 landmarks: 21 for image, but 20 for world
+        type(mock_results).multi_hand_landmarks = PropertyMock(
+            return_value=[_make_landmark_list(count=21)]
+        )
+        type(mock_results).multi_hand_world_landmarks = PropertyMock(
+            return_value=[_make_landmark_list(count=20)]
+        )
+
+        mock_hands_instance.process.return_value = mock_results
+        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
+
+        with (
+            MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker,
+            pytest.raises(
+                MediaPipeInferenceError, match="Inconsistent landmark counts"
+            ),
+        ):
+            tracker.process(_make_frame())
+
     def test_landmark_boundary_conditions(
         self,
         mock_hands_module: MagicMock,
@@ -628,3 +683,28 @@ class TestMetadataPropagation:
             # 2. Test mirroring inactive
             res_false = tracker.process(_make_frame(is_mirrored=False))
             assert res_false.is_mirrored is False
+
+
+class TestMediaPipeTrackerPerformance:
+    """Benchmark tests for critical inference and transformation paths."""
+
+    @pytest.mark.benchmark(group="tracker")
+    def test_benchmark_coordinate_transformation(
+        self,
+        benchmark: BenchmarkFixture,
+        mock_hands_module: MagicMock,
+        mock_hands_instance: MagicMock,
+        tracker_cfg: TrackerConfig,
+    ) -> None:
+        """Benchmark the mapping from MediaPipe results to typed FrameResult."""
+        mock_hands_instance.process.return_value = _make_mp_results([("Right", 0.9)])
+        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
+        frame = _make_frame()
+
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
+
+            def _run_process() -> None:
+                tracker.process(frame)
+
+            # Benchmark the process method which includes conversion logic
+            benchmark(_run_process)

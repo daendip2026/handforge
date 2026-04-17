@@ -299,12 +299,24 @@ def _extract_landmark_lists(
         img_raw = results.multi_hand_landmarks
         wld_raw = results.multi_hand_world_landmarks
 
-        # Type Guard
+        # Explicit Type Guard: Ensure MediaPipe returned the expected attribute lists.
+        # This prevents generic TypeErrors during indexing.
         if img_raw is None or wld_raw is None:
             raise MediaPipeInferenceError("MediaPipe returned None for landmarks.")
 
         # Safe Indexing
-        return _LandmarkLists(image=img_raw[hand_index], world=wld_raw[hand_index])
+        img_list = img_raw[hand_index]
+        wld_list = wld_raw[hand_index]
+
+        # Structural Consistency Check:
+        # If lengths differ, MediaPipe is in an inconsistent state.
+        if len(img_list.landmark) != len(wld_list.landmark):
+            raise MediaPipeInferenceError(
+                f"Inconsistent landmark counts: image={len(img_list.landmark)}, "
+                f"world={len(wld_list.landmark)} for hand {hand_index}."
+            )
+
+        return _LandmarkLists(image=img_list, world=wld_list)
     except (IndexError, AttributeError, TypeError) as e:
         raise MediaPipeInferenceError(
             f"Failed to extract landmark lists for hand {hand_index}: {e}"
@@ -317,6 +329,13 @@ def _build_landmark_points(lists: _LandmarkLists) -> tuple[LandmarkPoint, ...]:
 
     image_landmarks = lists.image.landmark
     world_landmarks = lists.world.landmark
+
+    # Critical Validation: MediaPipe Hands MUST return exactly 21 landmarks.
+    # Anything else is a malformed result that would break downstream IK solvers.
+    if len(image_landmarks) != LANDMARK_COUNT:
+        raise MediaPipeInferenceError(
+            f"Expected {LANDMARK_COUNT} landmarks, but got {len(image_landmarks)}."
+        )
 
     for i in range(LANDMARK_COUNT):
         img = image_landmarks[i]
