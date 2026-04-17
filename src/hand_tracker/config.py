@@ -149,6 +149,7 @@ class LoggingConfig(HandForgeConfigModel):
     filename_prefix: str = Field(default="handforge")
     max_bytes: int = Field(default=10_485_760, ge=1024)
     backup_count: int = Field(default=5, ge=0)
+    max_queue_size: int = Field(default=10000, ge=1, le=100000)
     console_enabled: bool = Field(default=True)
 
 

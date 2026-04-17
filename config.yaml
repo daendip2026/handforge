@@ -46,6 +46,7 @@ logging:
   level: "INFO"                       # DEBUG | INFO | WARNING | ERROR
   log_dir: "logs"
   filename_prefix: "handforge"
-  max_bytes: 10485760                 # 10 MB per file
-  backup_count: 5
-  console_enabled: true
+  max_bytes: 10485760               # ~10MB per file
+  backup_count: 5                   # Keep 5 rotated log files
+  max_queue_size: 10000             # Bounded queue for async logging (OOM defense)
+  console_enabled: true             # Show pretty logs in terminal

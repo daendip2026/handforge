@@ -149,6 +149,30 @@ class TestTrackerConfig:
             TrackerConfig(fps_window_size=301)
 
 
+class TestLoggingConfig:
+    def test_max_queue_size_validation(self) -> None:
+        # Default
+        assert LoggingConfig().max_queue_size == 10000
+
+        # Valid boundaries
+        assert LoggingConfig(max_queue_size=1).max_queue_size == 1
+        assert LoggingConfig(max_queue_size=100000).max_queue_size == 100000
+
+        # Invalid boundaries
+        with pytest.raises(ValidationError):
+            LoggingConfig(max_queue_size=0)
+        with pytest.raises(ValidationError):
+            LoggingConfig(max_queue_size=100001)
+
+    def test_invalid_level(self) -> None:
+        with pytest.raises(ValidationError):
+            LoggingConfig(level="VERBOSE")  # type: ignore
+
+    def test_too_small_max_bytes(self) -> None:
+        with pytest.raises(ValidationError):
+            LoggingConfig(max_bytes=512)  # Minimum is 1024
+
+
 class TestNetworkConfig:
     """Critical tests for network availability (Port ranges)."""
 
@@ -165,16 +189,6 @@ class TestNetworkConfig:
 
         with pytest.raises(ValidationError):
             OSCConfig(port=1023)  # Just outside user range
-
-
-class TestLoggingConfig:
-    def test_invalid_level(self) -> None:
-        with pytest.raises(ValidationError):
-            LoggingConfig(level="VERBOSE")  # type: ignore
-
-    def test_too_small_max_bytes(self) -> None:
-        with pytest.raises(ValidationError):
-            LoggingConfig(max_bytes=512)  # Minimum is 1024
 
 
 class TestAppConfig:
