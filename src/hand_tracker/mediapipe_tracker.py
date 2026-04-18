@@ -160,6 +160,13 @@ class HandLandmark(IntEnum):
 # Derived specifications
 LANDMARK_COUNT: Final[int] = len(HandLandmark)
 
+# Pre-cached landmark names for hot-path performance.
+# Avoids repeated IntEnum.__call__ + .name lookups during per-frame
+# landmark construction, eliminating ~21 temporary IntEnum objects per frame.
+_LANDMARK_NAMES: Final[tuple[str, ...]] = tuple(
+    HandLandmark(i).name for i in range(LANDMARK_COUNT)
+)
+
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -324,9 +331,13 @@ def _extract_landmark_lists(
 
 
 def _build_landmark_points(lists: _LandmarkLists) -> tuple[LandmarkPoint, ...]:
-    """Convert raw mediapipe landmark objects into typed LandmarkPoints."""
-    points: list[LandmarkPoint] = []
+    """Convert raw mediapipe landmark objects into typed LandmarkPoints.
 
+    Performance: Uses a generator expression fed directly into tuple() to
+    avoid an intermediate list allocation.  Landmark names are resolved
+    from the module-level _LANDMARK_NAMES cache instead of per-call
+    IntEnum lookups, eliminating ~22 temporary objects per invocation.
+    """
     image_landmarks = lists.image.landmark
     world_landmarks = lists.world.landmark
 
@@ -337,24 +348,21 @@ def _build_landmark_points(lists: _LandmarkLists) -> tuple[LandmarkPoint, ...]:
             f"Expected {LANDMARK_COUNT} landmarks, but got {len(image_landmarks)}."
         )
 
-    for i in range(LANDMARK_COUNT):
-        img = image_landmarks[i]
-        wld = world_landmarks[i]
-
-        points.append(
-            LandmarkPoint(
-                index=i,
-                name=HandLandmark(i).name,
-                x=float(img.x),
-                y=float(img.y),
-                z=float(img.z),
-                wx=float(wld.x),
-                wy=float(wld.y),
-                wz=float(wld.z),
-            )
+    return tuple(
+        LandmarkPoint(
+            index=i,
+            name=_LANDMARK_NAMES[i],
+            x=float(img.x),
+            y=float(img.y),
+            z=float(img.z),
+            wx=float(wld.x),
+            wy=float(wld.y),
+            wz=float(wld.z),
         )
-
-    return tuple(points)
+        for i, (img, wld) in enumerate(
+            zip(image_landmarks, world_landmarks, strict=True)
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -231,18 +231,19 @@ class LandmarkProcessor:
         fps = self._fps.update(result.timestamp_us)
         self._processed_count += 1
 
-        processed_hands: list[ProcessedHand] = []
-        for raw_hand in result.hands:
-            processed_hands.append(
-                ProcessedHand(
-                    landmarks=raw_hand.landmarks,
-                    handedness=raw_hand.handedness,
-                    confidence=raw_hand.confidence,
-                )
+        # Generator → tuple directly: avoids intermediate list allocation
+        # to reduce GC pressure in the per-frame hot path.
+        processed_hands = tuple(
+            ProcessedHand(
+                landmarks=raw_hand.landmarks,
+                handedness=raw_hand.handedness,
+                confidence=raw_hand.confidence,
             )
+            for raw_hand in result.hands
+        )
 
         processed = ProcessedFrame(
-            hands=tuple(processed_hands),
+            hands=processed_hands,
             timestamp_us=result.timestamp_us,
             frame_index=result.frame_index,
             is_mirrored=result.is_mirrored,
