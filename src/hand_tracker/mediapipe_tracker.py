@@ -33,6 +33,7 @@ Hardware & Performance:
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from enum import IntEnum
@@ -518,14 +519,15 @@ class MediaPipeTracker:
         # Discard warmup frames
         if self._warmup_remaining > 0:
             self._warmup_remaining -= 1
-            log.debug(
-                "warmup frame discarded",
-                extra={
-                    "frame_index": frame.frame_index,
-                    "warmup_remaining": self._warmup_remaining,
-                    "inference_time_us": inference_time_us,
-                },
-            )
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug(
+                    "warmup frame discarded",
+                    extra={
+                        "frame_index": frame.frame_index,
+                        "warmup_remaining": self._warmup_remaining,
+                        "inference_time_us": inference_time_us,
+                    },
+                )
             return FrameResult(
                 hands=(),
                 timestamp_us=frame.timestamp_us,
@@ -535,13 +537,14 @@ class MediaPipeTracker:
             )
 
         if results.multi_hand_landmarks is None:
-            log.debug(
-                "no hands detected",
-                extra={
-                    "frame_index": frame.frame_index,
-                    "inference_time_us": inference_time_us,
-                },
-            )
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug(
+                    "no hands detected",
+                    extra={
+                        "frame_index": frame.frame_index,
+                        "inference_time_us": inference_time_us,
+                    },
+                )
             return FrameResult(
                 hands=(),
                 timestamp_us=frame.timestamp_us,
@@ -585,15 +588,16 @@ class MediaPipeTracker:
                 )
             )
 
-        log.debug(
-            "inference complete",
-            extra={
-                "frame_index": frame.frame_index,
-                "detected_count": len(results.multi_hand_landmarks),
-                "filtered_count": len(detected_hands),
-                "inference_time_us": inference_time_us,
-            },
-        )
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(
+                "inference complete",
+                extra={
+                    "frame_index": frame.frame_index,
+                    "detected_count": len(results.multi_hand_landmarks),
+                    "filtered_count": len(detected_hands),
+                    "inference_time_us": inference_time_us,
+                },
+            )
 
         return FrameResult(
             hands=tuple(detected_hands),

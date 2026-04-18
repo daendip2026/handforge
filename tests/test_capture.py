@@ -400,9 +400,12 @@ class TestWebcamCapturePerformance:
     ) -> None:
         """Measure the latency of acquiring a frame from the async queue."""
         with WebcamCapture(mock_cfg) as wc:
+            # Pre-create iterator once: avoids per-call generator allocation
+            # that would inflate measurement with __iter__ re-entry overhead.
+            gen = iter(wc)
 
             def _get_frame() -> None:
-                next(iter(wc))
+                next(gen)
 
             # Use realistic iterations/rounds for threaded I/O to avoid hangs.
             benchmark.pedantic(_get_frame, iterations=1, rounds=100, warmup_rounds=10)

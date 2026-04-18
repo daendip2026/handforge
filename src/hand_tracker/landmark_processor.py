@@ -26,6 +26,7 @@ Design Decisions:
 from __future__ import annotations
 
 import collections
+import logging
 import math
 from dataclasses import dataclass
 from typing import Final
@@ -251,16 +252,17 @@ class LandmarkProcessor:
             fps=fps,
         )
 
-        log.debug(
-            "frame processed",
-            extra={
-                "frame_index": result.frame_index,
-                "fps": round(fps, 2) if not math.isnan(fps) else None,
-                "hands_count": len(processed_hands),
-                "inference_time_us": result.inference_time_us,
-                "processed_count": self._processed_count,
-            },
-        )
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(
+                "frame processed",
+                extra={
+                    "frame_index": result.frame_index,
+                    "fps": round(fps, 2) if not math.isnan(fps) else None,
+                    "hands_count": len(processed_hands),
+                    "inference_time_us": result.inference_time_us,
+                    "processed_count": self._processed_count,
+                },
+            )
 
         return processed
 
