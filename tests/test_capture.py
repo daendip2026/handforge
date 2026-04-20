@@ -5,6 +5,7 @@ from __future__ import annotations
 import platform
 import queue
 import threading
+import time
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -45,13 +46,28 @@ def mock_cfg() -> CameraConfig:
 
 @pytest.fixture
 def mock_cap() -> MagicMock:
-    """Fixture providing a minimal cv2.VideoCapture mock."""
+    """Fixture providing a minimal cv2.VideoCapture mock with optional throttling."""
     cap = MagicMock()
     cap.isOpened.return_value = True
 
     # Default frame and read success
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    cap.read.return_value = (True, frame)
+
+    class ThrottledRead:
+        def __init__(self, fps: float = 0.0):
+            self.fps = fps
+            self.last_read = 0.0
+
+        def __call__(self) -> tuple[bool, np.ndarray | None]:
+            if self.fps > 0:
+                interval = 1.0 / self.fps
+                elapsed = time.perf_counter() - self.last_read
+                if elapsed < interval:
+                    time.sleep(interval - elapsed)
+            self.last_read = time.perf_counter()
+            return (True, frame)
+
+    cap.read.side_effect = ThrottledRead()
 
     cap.get.side_effect = lambda prop: {
         3: 640.0,  # cv2.CAP_PROP_FRAME_WIDTH
@@ -270,7 +286,7 @@ class TestWebcamCaptureIteration:
     def test_raises_after_max_consecutive_failures(
         self, mock_cfg: CameraConfig, patch_cv2: MagicMock
     ) -> None:
-        patch_cv2.read.return_value = (False, None)
+        patch_cv2.read.side_effect = lambda: (False, None)
 
         with (
             pytest.raises(CaptureError, match="consecutive reads"),
@@ -389,23 +405,76 @@ class TestWebcamCaptureIteration:
 
 
 class TestWebcamCapturePerformance:
-    """Benchmark tests for the producer-consumer transfer latency."""
+    """
+    Benchmark tests for the producer-consumer transfer latency.
+
+    Terminology:
+    - Target FPS: Simulates the hardware shutter/sensor interval using the mock producer.
+    - Latency: The time elapsed from a frame being requested to it being delivered.
+    """
 
     @pytest.mark.benchmark(group="capture")
-    def test_benchmark_frame_acquisition_latency(
+    def test_benchmark_latency_unthrottled(
         self,
         benchmark: BenchmarkFixture,
         mock_cfg: CameraConfig,
         patch_cv2: MagicMock,
     ) -> None:
-        """Measure the latency of acquiring a frame from the async queue."""
+        """Measure the absolute minimum overhead of the synchronization pipeline."""
+        patch_cv2.read.side_effect.fps = 0.0  # Unthrottled
+
         with WebcamCapture(mock_cfg) as wc:
             # Pre-create iterator once: avoids per-call generator allocation
             # that would inflate measurement with __iter__ re-entry overhead.
             gen = iter(wc)
+            benchmark.pedantic(
+                next, args=(gen,), iterations=1, rounds=100, warmup_rounds=10
+            )
 
-            def _get_frame() -> None:
-                next(gen)
+    @pytest.mark.benchmark(group="capture")
+    def test_benchmark_latency_30fps(
+        self,
+        benchmark: BenchmarkFixture,
+        mock_cfg: CameraConfig,
+        patch_cv2: MagicMock,
+    ) -> None:
+        """Measure latency in a simulated 30fps (33.3ms) environment."""
+        patch_cv2.read.side_effect.fps = 30.0
 
-            # Use realistic iterations/rounds for threaded I/O to avoid hangs.
-            benchmark.pedantic(_get_frame, iterations=1, rounds=100, warmup_rounds=10)
+        with WebcamCapture(mock_cfg) as wc:
+            gen = iter(wc)
+            benchmark.pedantic(
+                next, args=(gen,), iterations=1, rounds=50, warmup_rounds=10
+            )
+
+    @pytest.mark.benchmark(group="capture")
+    def test_benchmark_latency_60fps(
+        self,
+        benchmark: BenchmarkFixture,
+        mock_cfg: CameraConfig,
+        patch_cv2: MagicMock,
+    ) -> None:
+        """Measure latency in a simulated 60fps (16.6ms) environment."""
+        patch_cv2.read.side_effect.fps = 60.0
+
+        with WebcamCapture(mock_cfg) as wc:
+            gen = iter(wc)
+            benchmark.pedantic(
+                next, args=(gen,), iterations=1, rounds=50, warmup_rounds=10
+            )
+
+    @pytest.mark.benchmark(group="capture")
+    def test_benchmark_latency_240fps(
+        self,
+        benchmark: BenchmarkFixture,
+        mock_cfg: CameraConfig,
+        patch_cv2: MagicMock,
+    ) -> None:
+        """Measure latency in a simulated 240fps (4.16ms) environment."""
+        patch_cv2.read.side_effect.fps = 240.0
+
+        with WebcamCapture(mock_cfg) as wc:
+            gen = iter(wc)
+            benchmark.pedantic(
+                next, args=(gen,), iterations=1, rounds=100, warmup_rounds=10
+            )
