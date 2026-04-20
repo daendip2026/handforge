@@ -336,8 +336,10 @@ class TestMediaPipeTrackerEdgeCases:
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
         with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             result_none = tracker.process(
-                Frame(bgr=None, timestamp_us=0, frame_index=0, is_mirrored=True)
-            )  # type: ignore
+                Frame(
+                    bgr=cast(Any, None), timestamp_us=0, frame_index=0, is_mirrored=True
+                )
+            )
             assert len(result_none.hands) == 0
 
     def test_malformed_landmark_count(
