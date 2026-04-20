@@ -33,13 +33,16 @@ Hardware & Performance:
 
 from __future__ import annotations
 
-import logging
+import threading
 import time
-from typing import Final, NamedTuple, Protocol, runtime_checkable
+from pathlib import Path
+from typing import Final, Protocol, runtime_checkable
 
 import cv2
 import mediapipe as mp
 import numpy as np
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 
 from hand_tracker.config import MediaPipeConfig, TrackerConfig
 from hand_tracker.logger import get_logger
@@ -52,9 +55,16 @@ from hand_tracker.types import (
     LandmarkPoint,
     RawHandResult,
 )
-from hand_tracker.utils import NS_PER_US
+from hand_tracker.utils import NS_PER_US, US_PER_MS
 
 log = get_logger(__name__)
+
+# Performance: Pre-cache Enum values to avoid string-lookup overhead in hot path
+_HANDEDNESS_MAP: Final[dict[str, Handedness]] = {
+    "Right": Handedness.RIGHT,
+    "Left": Handedness.LEFT,
+    "Both": Handedness.BOTH,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +74,7 @@ log = get_logger(__name__)
 
 @runtime_checkable
 class MPLandmark(Protocol):
-    """Contract for a single MediaPipe landmark."""
+    """Contract for a single MediaPipe landmark (Normalized or World)."""
 
     x: float
     y: float
@@ -72,67 +82,38 @@ class MPLandmark(Protocol):
 
 
 @runtime_checkable
-class MPLandmarkList(Protocol):
-    """Contract for a list of MediaPipe landmarks."""
-
-    landmark: list[MPLandmark]
-
-
-@runtime_checkable
-class MPClassification(Protocol):
-    """Contract for a MediaPipe classification result."""
-
-    label: str
-    score: float
-
-
-@runtime_checkable
 class MPCategory(Protocol):
-    """Contract for a MediaPipe classification category (Handedness)."""
+    """Contract for a MediaPipe classification category."""
 
-    classification: list[MPClassification]
-
-
-@runtime_checkable
-class MPResults(Protocol):
-    """Contract for MediaPipe Hands solution results."""
-
-    @property
-    def multi_hand_landmarks(self) -> list[MPLandmarkList] | None: ...
-
-    @property
-    def multi_hand_world_landmarks(self) -> list[MPLandmarkList] | None: ...
-
-    @property
-    def multi_handedness(self) -> list[MPCategory] | None: ...
+    score: float
+    index: int
+    category_name: str
+    display_name: str
 
 
 @runtime_checkable
-class MPHandsModule(Protocol):
-    """Contract for the MediaPipe Hands solution module/factory."""
+class MPHandLandmarkerResult(Protocol):
+    """Contract for MediaPipe HandLandmarker inference results."""
 
-    def Hands(
+    hand_landmarks: list[list[MPLandmark]]
+    hand_world_landmarks: list[list[MPLandmark]]
+    handedness: list[list[MPCategory]]
+
+
+@runtime_checkable
+class MPHandLandmarker(Protocol):
+    """Contract for a MediaPipe HandLandmarker instance."""
+
+    def detect_async(
         self,
-        static_image_mode: bool = False,
-        max_num_hands: int = 2,
-        model_complexity: int = 1,
-        min_detection_confidence: float = 0.5,
-        min_tracking_confidence: float = 0.5,
-    ) -> MPHandsSolution: ...
-
-
-@runtime_checkable
-class MPHandsSolution(Protocol):
-    """Contract for a MediaPipe Hands solution instance."""
-
-    def process(self, image: np.ndarray) -> MPResults: ...
+        image: mp.Image,
+        timestamp_ms: int,
+    ) -> None: ...
 
     def close(self) -> None: ...
 
 
 # Pre-cached landmark names for hot-path performance.
-# Avoids repeated IntEnum.__call__ + .name lookups during per-frame
-# landmark construction, eliminating ~21 temporary IntEnum objects per frame.
 _LANDMARK_NAMES: Final[tuple[str, ...]] = tuple(
     HandLandmark(i).name for i in range(LANDMARK_COUNT)
 )
@@ -158,92 +139,6 @@ class MediaPipeConfigurationError(MediaPipeError):
 # ---------------------------------------------------------------------------
 # Extraction types
 # ---------------------------------------------------------------------------
-
-
-class _LandmarkLists(NamedTuple):
-    """Pair of mediapipe NormalizedLandmarkList and LandmarkList."""
-
-    image: MPLandmarkList
-    world: MPLandmarkList
-
-
-def _extract_landmark_lists(
-    results: MPResults,
-    hand_index: int,
-) -> _LandmarkLists:
-    """
-    Pull the (image, world) landmark lists for a given hand index.
-
-    Both lists are guaranteed to be present when model_complexity=1
-    and a hand is detected.
-
-    Raises
-    ------
-    MediaPipeInferenceError
-        If world_landmarks are missing despite model_complexity=1.
-    """
-    try:
-        # Fetch results
-        img_raw = results.multi_hand_landmarks
-        wld_raw = results.multi_hand_world_landmarks
-
-        # Explicit Type Guard: Ensure MediaPipe returned the expected attribute lists.
-        # This prevents generic TypeErrors during indexing.
-        if img_raw is None or wld_raw is None:
-            raise MediaPipeInferenceError("MediaPipe returned None for landmarks.")
-
-        # Safe Indexing
-        img_list = img_raw[hand_index]
-        wld_list = wld_raw[hand_index]
-
-        # Structural Consistency Check:
-        # If lengths differ, MediaPipe is in an inconsistent state.
-        if len(img_list.landmark) != len(wld_list.landmark):
-            raise MediaPipeInferenceError(
-                f"Inconsistent landmark counts: image={len(img_list.landmark)}, "
-                f"world={len(wld_list.landmark)} for hand {hand_index}."
-            )
-
-        return _LandmarkLists(image=img_list, world=wld_list)
-    except (IndexError, AttributeError, TypeError) as e:
-        raise MediaPipeInferenceError(
-            f"Failed to extract landmark lists for hand {hand_index}: {e}"
-        ) from e
-
-
-def _build_landmark_points(lists: _LandmarkLists) -> tuple[LandmarkPoint, ...]:
-    """Convert raw mediapipe landmark objects into typed LandmarkPoints.
-
-    Performance: Uses a generator expression fed directly into tuple() to
-    avoid an intermediate list allocation.  Landmark names are resolved
-    from the module-level _LANDMARK_NAMES cache instead of per-call
-    IntEnum lookups, eliminating ~22 temporary objects per invocation.
-    """
-    image_landmarks = lists.image.landmark
-    world_landmarks = lists.world.landmark
-
-    # Critical Validation: MediaPipe Hands MUST return exactly 21 landmarks.
-    # Anything else is a malformed result that would break downstream IK solvers.
-    if len(image_landmarks) != LANDMARK_COUNT:
-        raise MediaPipeInferenceError(
-            f"Expected {LANDMARK_COUNT} landmarks, but got {len(image_landmarks)}."
-        )
-
-    return tuple(
-        LandmarkPoint(
-            index=i,
-            name=_LANDMARK_NAMES[i],
-            x=float(img.x),
-            y=float(img.y),
-            z=float(img.z),
-            wx=float(wld.x),
-            wy=float(wld.y),
-            wz=float(wld.z),
-        )
-        for i, (img, wld) in enumerate(
-            zip(image_landmarks, world_landmarks, strict=True)
-        )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +170,7 @@ class MediaPipeTracker:
         self,
         mp_cfg: MediaPipeConfig,
         tracker_cfg: TrackerConfig,
-        hands_module: MPHandsModule | None = None,
+        hand_landmarker_factory: type[MPHandLandmarker] | None = None,
     ) -> None:
         """
         Initialise the tracker.
@@ -286,41 +181,68 @@ class MediaPipeTracker:
             Inference performance and model settings.
         tracker_cfg: TrackerConfig
             Application-level tracking and filtering settings.
-        hands_module: MPHandsModule, optional
-            A mock or alternative MediaPipe hands module for dependency
-            injection during testing. If None, the standard mediapipe
-            library is used.
+        hand_landmarker_factory: type[MPHandLandmarker], optional
+            Alternative factory for HandLandmarker (for testing).
         """
         self._mp_cfg = mp_cfg
         self._tracker_cfg = tracker_cfg
-        self._hands_module = hands_module
-        self._hands: MPHandsSolution | None = None
+        self._factory = hand_landmarker_factory
+        self._detector: MPHandLandmarker | None = None
         self._warmup_remaining: int = mp_cfg.warmup_frame_count
+
+        # Async handling state: Lightweight single-slot buffer with lock
+        # This replaces queue.Queue which has higher overhead for single-latest-result use cases.
+        self._hands_lock = threading.Lock()
+        self._latest_hands: tuple[RawHandResult, ...] = ()
+        self._latest_inference_time_us: int = 0
+
+        self._last_detected_at_ns: int = 0
+        self._frame_count: int = 0
+        self._last_processed_timestamp_us: int = -1
+
+        # Zero-Allocation Pool: Pre-allocate target arrays for cv2.cvtColor
+        # to strictly prevent massive GC spikes in hot path.
+        self._rgb_pool: list[np.ndarray] | None = None
+        self._pool_index: int = 0
 
     # ------------------------------------------------------------------
     # Context manager
     # ------------------------------------------------------------------
 
     def __enter__(self) -> MediaPipeTracker:
-        # Production: Use the real mediapipe library.
-        # Testing: Use the injected mock module to avoid loading ML models.
-        mp_hands = self._hands_module or mp.solutions.hands
-        self._hands = mp_hands.Hands(
-            static_image_mode=self._mp_cfg.static_image_mode,
-            max_num_hands=self._mp_cfg.max_num_hands,
-            model_complexity=self._mp_cfg.model_complexity,
-            min_detection_confidence=self._mp_cfg.min_detection_confidence,
+        # 1. Validate Model Existence
+        model_path = Path(self._mp_cfg.model_path)
+        if not model_path.exists():
+            raise MediaPipeConfigurationError(
+                f"Model file not found at {model_path}. "
+                "Please run 'python scripts/download_models.py' first."
+            )
+
+        # 2. Setup HandLandmarker
+        base_options = python.BaseOptions(model_asset_path=str(model_path))
+        options = vision.HandLandmarkerOptions(
+            base_options=base_options,
+            running_mode=vision.RunningMode.LIVE_STREAM,
+            num_hands=self._mp_cfg.max_num_hands,
+            min_hand_detection_confidence=self._mp_cfg.min_detection_confidence,
+            min_hand_presence_confidence=self._mp_cfg.min_presence_confidence,
             min_tracking_confidence=self._mp_cfg.min_tracking_confidence,
+            result_callback=self._on_result,
         )
 
+        if self._factory:
+            # Type ignore because the factory is a Protocol mock in tests
+            self._detector = self._factory.create_from_options(options)  # type: ignore
+        else:
+            self._detector = vision.HandLandmarker.create_from_options(options)
+
         log.info(
-            "MediaPipe Hands initialised",
+            "MediaPipe Tasks HandLandmarker initialised",
             extra={
-                "model_complexity": self._mp_cfg.model_complexity,
+                "model_path": self._mp_cfg.model_path,
                 "max_num_hands": self._mp_cfg.max_num_hands,
                 "min_detection_confidence": self._mp_cfg.min_detection_confidence,
                 "min_tracking_confidence": self._mp_cfg.min_tracking_confidence,
-                "primary_hand": self._tracker_cfg.primary_hand,
                 "warmup_frames": self._mp_cfg.warmup_frame_count,
             },
         )
@@ -333,156 +255,176 @@ class MediaPipeTracker:
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
-        if self._hands is not None:
-            self._hands.close()
-            self._hands = None
-            log.info("MediaPipe Hands closed")
+        if self._detector is not None:
+            self._detector.close()
+            self._detector = None
+            log.info("MediaPipe HandLandmarker closed")
 
     # ------------------------------------------------------------------
     # Core processing
     # ------------------------------------------------------------------
 
+    def _on_result(
+        self,
+        results: MPHandLandmarkerResult,
+        output_image: mp.Image,
+        timestamp_ms: int,
+    ) -> None:
+        """
+        Callback from MediaPipe background thread.
+
+        Extreme-optimized path to minimize Python glue overhead.
+        """
+        now_ns = time.perf_counter_ns()
+        inf_time = (now_ns - self._last_detected_at_ns) // NS_PER_US
+        ts_us = timestamp_ms * US_PER_MS
+
+        # Use a generator to build the tuple directly. This avoids the intermediate
+        # list allocation ('detected_hands = []'), further reducing GC pressure.
+        hands_result: tuple[RawHandResult, ...] = ()
+
+        if results.hand_landmarks:
+            # Local attribute caching for hot-path speed
+            cfg = self._tracker_cfg
+            target_side = cfg.primary_hand
+            names = _LANDMARK_NAMES
+            h_both = Handedness.BOTH
+
+            # Task results lists
+            rm_landmarks = results.hand_landmarks
+            rm_world = results.hand_world_landmarks
+            rm_hands = results.handedness
+
+            # Validation: Ensure all result lists have matching lengths to prevent
+            # downstream indexing errors or data misalignment.
+            if not (len(rm_landmarks) == len(rm_world) == len(rm_hands)):
+                log.error(
+                    "MediaPipe inference produced inconsistent result lists",
+                    extra={
+                        "hand_landmarks": len(rm_landmarks),
+                        "hand_world_landmarks": len(rm_world),
+                        "handedness": len(rm_hands),
+                    },
+                )
+                raise MediaPipeInferenceError(
+                    f"Inconsistent result list lengths: {len(rm_landmarks)}, {len(rm_world)}, {len(rm_hands)}"
+                )
+
+            # Validation: Ensure all detected hands have the correct landmark count
+            for hand_lms in rm_landmarks:
+                if len(hand_lms) != LANDMARK_COUNT:
+                    raise MediaPipeInferenceError(
+                        f"Expected {LANDMARK_COUNT} landmarks, but got {len(hand_lms)}."
+                    )
+
+            hands_result = tuple(
+                RawHandResult(
+                    landmarks=tuple(
+                        LandmarkPoint(
+                            index=i,
+                            name=names[i],
+                            x=p.x,
+                            y=p.y,
+                            z=p.z,
+                            wx=w.x,
+                            wy=w.y,
+                            wz=w.z,
+                        )
+                        for i, (p, w) in enumerate(zip(mp_lm, mp_wlm, strict=True))
+                    ),
+                    handedness=_HANDEDNESS_MAP.get(rm_h[0].category_name, h_both),
+                    confidence=float(rm_h[0].score),
+                    timestamp_us=ts_us,
+                    inference_time_us=inf_time,
+                )
+                for mp_lm, mp_wlm, rm_h in zip(
+                    rm_landmarks, rm_world, rm_hands, strict=True
+                )
+                if target_side == h_both
+                or _HANDEDNESS_MAP.get(rm_h[0].category_name, h_both) == target_side
+            )
+
+        # Atomic update of the latest hands data
+        with self._hands_lock:
+            self._latest_hands = hands_result
+            self._latest_inference_time_us = inf_time
+
     def process(self, frame: Frame) -> FrameResult:
         """
-        Run MediaPipe Hands inference on a single frame.
+        Trigger asynchronous MediaPipe inference.
+
+        This method returns immediately to prevent blocking the webcam loop.
+        It returns the latest available result from the internal buffer.
 
         Parameters
         ----------
         frame:
-            Frame from WebcamCapture.  BGR format; converted to RGB
-            internally before passing to MediaPipe.
+            Frame from WebcamCapture. BGR format.
 
         Returns
         -------
         FrameResult
-            Container with zero, one, or multiple RawHandResults,
-            depending on detection and primary_hand config.
-            Empty during warmup frames or when no hands are detected.
-
-        Raises
-        ------
-        MediaPipeConfigurationError
-            If called outside the context manager.
+            Contains the MOST RECENT available results (possibly with 1-frame lag).
         """
-        if self._hands is None:
+        if self._detector is None:
             raise MediaPipeConfigurationError(
                 "MediaPipeTracker must be used as a context manager before calling process()."
             )
 
-        # Standard return for no-op states (warmup, empty frame)
-        empty_result = FrameResult(
+        self._frame_count += 1
+        if self._frame_count <= self._mp_cfg.warmup_frame_count:
+            return self._make_empty_result(frame)
+
+        # 1. Trigger async inference (Only if this is a new frame)
+        if (
+            frame.bgr is not None
+            and frame.bgr.size > 0
+            and frame.timestamp_us > self._last_processed_timestamp_us
+        ):
+            self._last_processed_timestamp_us = frame.timestamp_us
+
+            # Zero-Allocation Pool: Initialize on first frame reception
+            if self._rgb_pool is None or self._rgb_pool[0].shape != frame.bgr.shape:
+                # 5 frames pool size is enough for async stream consumer lag
+                self._rgb_pool = [np.empty_like(frame.bgr) for _ in range(5)]
+                self._pool_index = 0
+
+            # Get next available buffer without allocating memory
+            dst_rgb = self._rgb_pool[self._pool_index]
+            self._pool_index = (self._pool_index + 1) % 5
+
+            # In-place conversion eliminates 1MB memory allocation overhead
+            dst_rgb.flags.writeable = True
+            cv2.cvtColor(frame.bgr, cv2.COLOR_BGR2RGB, dst=dst_rgb)
+            dst_rgb.flags.writeable = False
+
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=dst_rgb)
+            ts_ms = int(frame.timestamp_us / US_PER_MS)
+
+            self._last_detected_at_ns = time.perf_counter_ns()
+            self._detector.detect_async(mp_image, ts_ms)
+
+        # 2. Get latest result from buffer (Consumer)
+        # We read the latest landmarks and timing under lock, then construct
+        # the result object once with the current frame's metadata.
+        with self._hands_lock:
+            hands = self._latest_hands
+            inf_time = self._latest_inference_time_us
+
+        return FrameResult(
+            hands=hands,
+            timestamp_us=frame.timestamp_us,
+            frame_index=frame.frame_index,
+            is_mirrored=frame.is_mirrored,
+            inference_time_us=inf_time,
+        )
+
+    def _make_empty_result(self, frame: Frame) -> FrameResult:
+        """Helper to create a consistent empty result for a given frame."""
+        return FrameResult(
             hands=(),
             timestamp_us=frame.timestamp_us,
             frame_index=frame.frame_index,
             is_mirrored=frame.is_mirrored,
             inference_time_us=0,
-        )
-
-        # Production-grade input validation
-        if frame.bgr is None or frame.bgr.size == 0:
-            log.warning("received empty frame; skipping inference")
-            return empty_result
-
-        # BGR → RGB: MediaPipe expects RGB input
-        rgb = cv2.cvtColor(frame.bgr, cv2.COLOR_BGR2RGB)
-
-        # Marking the array as non-writeable passes a zero-copy reference
-        # to MediaPipe and prevents accidental mutation of the frame buffer.
-        rgb.flags.writeable = False
-
-        t_start_ns = time.perf_counter_ns()
-        results = self._hands.process(rgb)
-        inference_time_us = (time.perf_counter_ns() - t_start_ns) // NS_PER_US
-
-        rgb.flags.writeable = True
-
-        # Discard warmup frames
-        if self._warmup_remaining > 0:
-            self._warmup_remaining -= 1
-            if log.isEnabledFor(logging.DEBUG):
-                log.debug(
-                    "warmup frame discarded",
-                    extra={
-                        "frame_index": frame.frame_index,
-                        "warmup_remaining": self._warmup_remaining,
-                        "inference_time_us": inference_time_us,
-                    },
-                )
-            return FrameResult(
-                hands=(),
-                timestamp_us=frame.timestamp_us,
-                frame_index=frame.frame_index,
-                is_mirrored=frame.is_mirrored,
-                inference_time_us=inference_time_us,
-            )
-
-        if results.multi_hand_landmarks is None:
-            if log.isEnabledFor(logging.DEBUG):
-                log.debug(
-                    "no hands detected",
-                    extra={
-                        "frame_index": frame.frame_index,
-                        "inference_time_us": inference_time_us,
-                    },
-                )
-            return FrameResult(
-                hands=(),
-                timestamp_us=frame.timestamp_us,
-                frame_index=frame.frame_index,
-                is_mirrored=frame.is_mirrored,
-                inference_time_us=inference_time_us,
-            )
-
-        # Process all detected hands and filter by primary_hand config
-        detected_hands: list[RawHandResult] = []
-        target_side = self._tracker_cfg.primary_hand
-
-        for idx in range(len(results.multi_hand_landmarks)):
-            # Robustness check: Ensure handedness data is present for the detected hand
-            if results.multi_handedness is None or idx >= len(results.multi_handedness):
-                raise MediaPipeInferenceError(
-                    f"Handedness data missing for hand index {idx} despite landmark detection."
-                )
-
-            # Extract handedness metadata
-            # multi_handedness is guaranteed non-None by the check above
-            classification = results.multi_handedness[idx].classification[0]
-            handedness = Handedness(classification.label)
-            confidence: float = float(classification.score)
-
-            # Filtering logic: Include if "Both" or if it matches requested side
-            if target_side != Handedness.BOTH and handedness != target_side:
-                continue
-
-            landmark_lists = _extract_landmark_lists(results, idx)
-            landmarks = _build_landmark_points(landmark_lists)
-
-            detected_hands.append(
-                RawHandResult(
-                    landmarks=landmarks,
-                    handedness=handedness,
-                    confidence=confidence,
-                    timestamp_us=frame.timestamp_us,
-                    frame_index=frame.frame_index,
-                    inference_time_us=inference_time_us,
-                )
-            )
-
-        if log.isEnabledFor(logging.DEBUG):
-            log.debug(
-                "inference complete",
-                extra={
-                    "frame_index": frame.frame_index,
-                    "detected_count": len(results.multi_hand_landmarks),
-                    "filtered_count": len(detected_hands),
-                    "inference_time_us": inference_time_us,
-                },
-            )
-
-        return FrameResult(
-            hands=tuple(detected_hands),
-            timestamp_us=frame.timestamp_us,
-            frame_index=frame.frame_index,
-            is_mirrored=frame.is_mirrored,
-            inference_time_us=inference_time_us,
         )

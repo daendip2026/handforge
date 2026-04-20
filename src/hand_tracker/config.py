@@ -82,12 +82,13 @@ class CameraConfig(HandForgeConfigModel):
 class MediaPipeConfig(HandForgeConfigModel):
     """MediaPipe Hands solution parameters."""
 
+    model_path: str = Field(default="models/hand_landmarker.task")
     max_num_hands: int = Field(default=1, ge=1, le=2)
-    # 0 = lite (faster, less accurate), 1 = full (world_landmarks available)
-    model_complexity: Literal[0, 1] = Field(default=1)
+    # 0 = lite (faster), 1 = full (world_landmarks available - REQUIRED)
+    model_complexity: Literal[1] = Field(default=1)
     min_detection_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    min_presence_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     min_tracking_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
-    static_image_mode: bool = Field(default=False)
     warmup_frame_count: int = Field(default=5, ge=0)
 
     @field_validator("model_complexity", mode="before")

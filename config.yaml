@@ -19,11 +19,12 @@ camera:
   mirror_input: true                   # Mirror the input frame horizontally (standard for webcams)
 
 mediapipe:
+  model_path: "models/hand_landmarker.task"  # Path to the .task model file
   max_num_hands: 1                    # single hand only
   model_complexity: 1                 # 0=lite, 1=full — full required for world coords
   min_detection_confidence: 0.7
+  min_presence_confidence: 0.5
   min_tracking_confidence: 0.5
-  static_image_mode: false            # false = video stream mode (lower latency)
   warmup_frame_count: 5               # discard first N frames for JIT warmup
 
 tracker:

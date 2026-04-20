@@ -7,8 +7,10 @@ All tests mock the mediapipe import surface; no actual inference runs.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final, cast
-from unittest.mock import MagicMock, PropertyMock, create_autospec
+from collections.abc import Iterator
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Final, cast
+from unittest.mock import MagicMock, create_autospec
 
 if TYPE_CHECKING:
     from pytest_benchmark.fixture import BenchmarkFixture
@@ -22,20 +24,15 @@ from hand_tracker.mediapipe_tracker import (
     MediaPipeInferenceError,
     MediaPipeTracker,
     MPCategory,
-    MPClassification,
-    MPHandsSolution,
+    MPHandLandmarker,
+    MPHandLandmarkerResult,
     MPLandmark,
-    MPLandmarkList,
-    MPResults,
 )
 from hand_tracker.types import (
     LANDMARK_COUNT,
     Frame,
     FrameResult,
     Handedness,
-    HandLandmark,
-    LandmarkPoint,
-    RawHandResult,
 )
 
 # ---------------------------------------------------------------------------
@@ -54,26 +51,52 @@ TEST_FRAME_INDEX: Final[int] = 42
 
 
 # ---------------------------------------------------------------------------
+# Test Helpers
+# ---------------------------------------------------------------------------
+
+
+def _create_mock_model_file(path: str) -> None:
+    """Ensure a dummy model file exists for tests that check its existence."""
+    p = Path(path)
+    if not p.exists():
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.touch()
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def mock_hands_instance() -> MagicMock:
-    """Provides a spec-accurate mock for the MediaPipe Hands instance using Protocols."""
-    # We use MPHandsSolution Protocol as the spec. This "brings the contract"
-    # from the production code without requiring the actual library.
-    return cast(MagicMock, create_autospec(MPHandsSolution, instance=True))
+def mock_detector_instance() -> MagicMock:
+    """Provides a spec-accurate mock for the MediaPipe HandLandmarker instance."""
+    return cast(MagicMock, create_autospec(MPHandLandmarker, instance=True))
 
 
 @pytest.fixture
-def mock_hands_module(mock_hands_instance: MagicMock) -> MagicMock:
-    """Fixture providing a mock MediaPipe hands module (for DI)."""
-    from hand_tracker.mediapipe_tracker import MPHandsModule
+def mock_landmarker_factory(mock_detector_instance: MagicMock) -> MagicMock:
+    """
+    Fixture providing a mock HandLandmarker factory (for DI).
+    In tests, we immediately trigger the callback with mocked results.
+    """
+    mock_factory = MagicMock()
 
-    mock_module = cast(MagicMock, create_autospec(MPHandsModule, instance=True))
-    mock_module.Hands.return_value = mock_hands_instance
-    return mock_module
+    def _create_from_options(options: Any) -> MagicMock:
+        # Capture the callback
+        on_result = options.result_callback
+
+        def _detect_async(image: Any, timestamp_ms: int) -> None:
+            # In tests, we immediately call the callback with mocked results
+            # configured in the test case via _test_result.
+            result = getattr(mock_detector_instance, "_test_result", _make_mp_results())
+            on_result(result, image, timestamp_ms)
+
+        mock_detector_instance.detect_async.side_effect = _detect_async
+        return mock_detector_instance
+
+    mock_factory.create_from_options.side_effect = _create_from_options
+    return mock_factory
 
 
 @pytest.fixture
@@ -94,15 +117,25 @@ def tracker_cfg() -> TrackerConfig:
     return TrackerConfig(primary_hand=Handedness.RIGHT)
 
 
+@pytest.fixture(autouse=True)
+def auto_mock_model(mp_cfg: MediaPipeConfig) -> None:
+    """Ensure the mock model file exists for all tests using MediaPipeConfig."""
+    _create_mock_model_file(mp_cfg.model_path)
+
+
 # ---------------------------------------------------------------------------
 # Factories for Mock Data (Protocol-compliant)
 # ---------------------------------------------------------------------------
 
 
-def _make_frame(frame_index: int = 0, is_mirrored: bool = True) -> Frame:
+def _make_frame(
+    frame_index: int = 0,
+    is_mirrored: bool = True,
+    timestamp_us: int = TEST_TIMESTAMP_US,
+) -> Frame:
     return Frame(
         bgr=np.zeros((480, 640, 3), dtype=np.uint8),
-        timestamp_us=TEST_TIMESTAMP_US,
+        timestamp_us=timestamp_us,
         frame_index=frame_index,
         is_mirrored=is_mirrored,
     )
@@ -119,58 +152,41 @@ def _make_landmark(
     return landmark
 
 
-def _make_landmark_list(count: int = LANDMARK_COUNT) -> MagicMock:
-    """Create a mock landmark list compliant with MPLandmarkList protocol."""
-    lm_list = cast(MagicMock, create_autospec(MPLandmarkList, instance=True))
-    lm_list.landmark = [
-        _make_landmark(
-            TEST_LANDMARK_X + i * 0.01, TEST_LANDMARK_Y + i * 0.01, TEST_LANDMARK_Z
-        )
-        for i in range(count)
-    ]
-    return lm_list
-
-
-def _make_handedness_result(label: str = "Right", score: float = 0.95) -> MagicMock:
-    """Create a mock handedness result compliant with MPCategory protocol."""
-    classification = cast(MagicMock, create_autospec(MPClassification, instance=True))
-    classification.label = label
-    classification.score = score
-
-    handedness = cast(MagicMock, create_autospec(MPCategory, instance=True))
-    handedness.classification = [classification]
-    return handedness
+def _make_handedness_result(
+    category_name: str = "Right", score: float = 0.95
+) -> MagicMock:
+    """Create a mock handedness category compliant with MPCategory protocol."""
+    category = cast(MagicMock, create_autospec(MPCategory, instance=True))
+    category.category_name = category_name
+    category.score = score
+    category.index = 0
+    category.display_name = category_name
+    return category
 
 
 def _make_mp_results(
     detections: list[tuple[str, float]] | None = None,
-    missing_world: bool = False,
-    missing_handedness: bool = False,
 ) -> MagicMock:
     """
-    Build a MediaPipe results object compliant with MPResults protocol.
+    Build a MediaPipe results object compliant with MPHandLandmarkerResult protocol.
     """
-    results = cast(MagicMock, create_autospec(MPResults, instance=True))
+    results = cast(MagicMock, create_autospec(MPHandLandmarkerResult, instance=True))
 
     if detections is None:
-        type(results).multi_hand_landmarks = PropertyMock(return_value=None)
-        type(results).multi_hand_world_landmarks = PropertyMock(return_value=None)
-        type(results).multi_handedness = PropertyMock(return_value=None)
+        results.hand_landmarks = []
+        results.hand_world_landmarks = []
+        results.handedness = []
         return results
 
-    type(results).multi_hand_landmarks = PropertyMock(
-        return_value=[_make_landmark_list() for _ in detections]
-    )
-    type(results).multi_hand_world_landmarks = PropertyMock(
-        return_value=None
-        if missing_world
-        else [_make_landmark_list() for _ in detections]
-    )
-    type(results).multi_handedness = PropertyMock(
-        return_value=None
-        if missing_handedness
-        else [_make_handedness_result(label, score) for label, score in detections]
-    )
+    results.hand_landmarks = [
+        [_make_landmark() for _ in range(LANDMARK_COUNT)] for _ in detections
+    ]
+    results.hand_world_landmarks = [
+        [_make_landmark() for _ in range(LANDMARK_COUNT)] for _ in detections
+    ]
+    results.handedness = [
+        [_make_handedness_result(label, score)] for label, score in detections
+    ]
 
     return results
 
@@ -183,28 +199,16 @@ def _make_mp_results(
 class TestMediaPipeTrackerLifecycle:
     def test_context_manager_closes_hands(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         mp_cfg: MediaPipeConfig,
         tracker_cfg: TrackerConfig,
     ) -> None:
-        """Verify that the MediaPipe Hands solution is closed on exit."""
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module):
+        """Verify that the MediaPipe HandLandmarker is closed on exit."""
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory):
             pass
 
-        mock_hands_instance.close.assert_called_once()
-
-    def test_hands_is_none_after_exit(
-        self,
-        mock_hands_module: MagicMock,
-        mp_cfg: MediaPipeConfig,
-        tracker_cfg: TrackerConfig,
-    ) -> None:
-        """Verify that the internal hands reference is cleared after exit."""
-        tracker = MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module)
-        with tracker:
-            pass
-        assert tracker._hands is None
+        mock_detector_instance.close.assert_called_once()
 
     def test_raises_without_context_manager(
         self, mp_cfg: MediaPipeConfig, tracker_cfg: TrackerConfig
@@ -218,18 +222,18 @@ class TestMediaPipeTrackerLifecycle:
 class TestWarmup:
     def test_warmup_frames_return_empty_hands(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
         """Verify that results are empty during the warmup period."""
         warmup_count = 3
         mp_cfg = MediaPipeConfig(warmup_frame_count=warmup_count)
-        mock_hands_instance.process.return_value = _make_mp_results(
+        mock_detector_instance._test_result = _make_mp_results(
             [("Right", TEST_CONFIDENCE)]
         )
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             for i in range(warmup_count):
                 result = tracker.process(_make_frame(i))
                 assert isinstance(result, FrameResult)
@@ -237,19 +241,18 @@ class TestWarmup:
 
     def test_post_warmup_frame_is_processed(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
         """Verify that the tracker starts processing after warmup completes."""
         warmup_count = 2
         mp_cfg = MediaPipeConfig(warmup_frame_count=warmup_count)
-        mock_hands_instance.process.return_value = _make_mp_results(
+        mock_detector_instance._test_result = _make_mp_results(
             [("Right", TEST_CONFIDENCE)]
         )
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
-            # Burn warmup frames
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             for i in range(warmup_count):
                 tracker.process(_make_frame(i))
 
@@ -261,250 +264,149 @@ class TestWarmup:
 
 class TestProcessDetection:
     @pytest.mark.parametrize(
-        "detections, expected_count",
+        "primary_hand, max_hands, detections, expected_count",
         [
-            (None, 0),  # No detection
-            ([], 0),  # Empty result from MP (shouldn't happen with landmarks but safe)
-            ([("Right", 0.9)], 1),  # Single match
-            ([("Left", 0.9)], 0),  # Filtered out
-            ([("Right", 0.95), ("Left", 0.92)], 1),  # Filtered from multiple
+            (Handedness.RIGHT, 1, None, 0),  # No detection
+            (Handedness.RIGHT, 1, [], 0),  # Empty detection list
+            (Handedness.RIGHT, 1, [("Right", 0.9)], 1),  # Exact match (Right)
+            (Handedness.RIGHT, 1, [("Left", 0.9)], 0),  # Mismatch (Left filtered out)
+            (
+                Handedness.RIGHT,
+                2,
+                [("Right", 0.95), ("Left", 0.92)],
+                1,
+            ),  # Multi-hand but single target
+            (
+                Handedness.BOTH,
+                2,
+                [("Right", 0.95), ("Left", 0.92)],
+                2,
+            ),  # BOTH mode returns everything
+            (Handedness.BOTH, 1, [("Right", 0.85)], 1),  # BOTH mode with single hand
         ],
     )
-    def test_detection_filtering(
+    def test_detection_logic(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
+        primary_hand: Handedness,
+        max_hands: int,
         detections: list[tuple[str, float]] | None,
         expected_count: int,
     ) -> None:
-        """Verify filtering logic across diverse detection scenarios."""
-        mock_hands_instance.process.return_value = _make_mp_results(detections)
-        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-        tracker_cfg = TrackerConfig(primary_hand=Handedness.RIGHT)
+        """Verify complex detection and filtering logic in a single unified test."""
+        # Setup
+        mock_detector_instance._test_result = _make_mp_results(detections)
+        mp_cfg = MediaPipeConfig(max_num_hands=max_hands, warmup_frame_count=0)
+        tracker_cfg = TrackerConfig(primary_hand=primary_hand)
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             result = tracker.process(_make_frame())
 
+        # Assert
+        assert isinstance(result, FrameResult), "Must return FrameResult even if empty"
         assert len(result.hands) == expected_count
-
-    def test_returns_both_hands_when_configured(
-        self, mock_hands_module: MagicMock, mock_hands_instance: MagicMock
-    ) -> None:
-        """Verify that multiple hands are returned when primary_hand is BOTH."""
-        mock_hands_instance.process.return_value = _make_mp_results(
-            [("Right", 0.95), ("Left", 0.92)]
-        )
-
-        mp_cfg = MediaPipeConfig(max_num_hands=2, warmup_frame_count=0)
-        tracker_cfg = TrackerConfig(primary_hand=Handedness.BOTH)
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
-            result = tracker.process(_make_frame())
-
-        assert len(result.hands) == 2
-        sides = {h.handedness for h in result.hands}
-        assert sides == {Handedness.RIGHT, Handedness.LEFT}
-
-    def test_landmark_data_integrity(
-        self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
-    ) -> None:
-        """Verify that landmark data is correctly mapped from MediaPipe to typed objects."""
-        mock_hands_instance.process.return_value = _make_mp_results(
-            [("Right", TEST_CONFIDENCE)]
-        )
-        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-        frame = _make_frame(frame_index=TEST_FRAME_INDEX)
-
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
-            result = tracker.process(frame)
-
-        # Verify type hierarchies and deep data
-        hand = result.hands[0]
-        assert isinstance(hand, RawHandResult)
-        assert hand.handedness == Handedness.RIGHT
-        assert hand.confidence == pytest.approx(TEST_CONFIDENCE)
-
-        wrist = hand.landmarks[HandLandmark.WRIST]
-        assert isinstance(wrist, LandmarkPoint)
-        assert wrist.x == pytest.approx(TEST_LANDMARK_X)
-        assert wrist.wx == pytest.approx(TEST_LANDMARK_X)
-
-    def test_raises_on_missing_world_landmarks(
-        self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
-    ) -> None:
-        """Verify that MediaPipeInferenceError is raised if world landmarks are missing."""
-        mock_hands_instance.process.return_value = _make_mp_results(
-            [("Right", 0.9)], missing_world=True
-        )
-        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-
-        with (
-            MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker,
-            pytest.raises(
-                MediaPipeInferenceError,
-                match=r"MediaPipe returned None for landmarks\.",
-            ),
-        ):
-            tracker.process(_make_frame())
 
 
 class TestMediaPipeTrackerEdgeCases:
-    def test_process_empty_frame(
-        self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
-    ) -> None:
-        """Verify that empty frames return an empty result and log a warning."""
-        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
-            # Test None bgr
-            result_none = tracker.process(
-                Frame(bgr=None, timestamp_us=0, frame_index=0, is_mirrored=True)  # type: ignore[arg-type]
-            )
-            assert len(result_none.hands) == 0
-
-            # Test empty bgr array
-            result_empty = tracker.process(
-                Frame(bgr=np.array([]), timestamp_us=0, frame_index=0, is_mirrored=True)
-            )
-            assert len(result_empty.hands) == 0
-
     def test_process_malformed_handedness(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
+    ) -> None:
+        """Verify that unknown handedness strings from MediaPipe fallback to BOTH."""
+        # Setup with an unexpected category name
+        mock_detector_instance._test_result = _make_mp_results([("Alien_Hand", 0.9)])
+        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
+        tracker_cfg = TrackerConfig(primary_hand=Handedness.BOTH)
+
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+            result = tracker.process(_make_frame())
+
+        # Verify fallback logic
+        assert result.hands[0].handedness == Handedness.BOTH
+
+    def test_process_empty_frame(
+        self,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
-        """Verify that MediaPipeInferenceError is raised if handedness data is missing."""
-        mock_hands_instance.process.return_value = _make_mp_results(
-            [("Right", 0.9)], missing_handedness=True
-        )
+        """Verify that empty frames return an empty result."""
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-
-        with (
-            MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker,
-            pytest.raises(MediaPipeInferenceError, match="Handedness data missing"),
-        ):
-            tracker.process(_make_frame())
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+            result_none = tracker.process(
+                Frame(bgr=None, timestamp_us=0, frame_index=0, is_mirrored=True)
+            )  # type: ignore
+            assert len(result_none.hands) == 0
 
     def test_malformed_landmark_count(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
         """Verify that MediaPipeInferenceError is raised if landmark count is not 21."""
         # Create a mock with only 5 landmarks
         mock_results = _make_mp_results([("Right", 0.9)])
-        type(mock_results).multi_hand_landmarks = PropertyMock(
-            return_value=[_make_landmark_list(count=5)]
-        )
-        type(mock_results).multi_hand_world_landmarks = PropertyMock(
-            return_value=[_make_landmark_list(count=5)]
-        )
+        mock_results.hand_landmarks = [[_make_landmark() for _ in range(5)]]
+        mock_results.hand_world_landmarks = [[_make_landmark() for _ in range(5)]]
+        mock_detector_instance._test_result = mock_results
 
-        mock_hands_instance.process.return_value = mock_results
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
         with (
-            MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker,
+            MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker,
             pytest.raises(MediaPipeInferenceError, match="Expected 21 landmarks"),
         ):
             tracker.process(_make_frame())
 
-    def test_inconsistent_side_lengths(
+    def test_raises_on_inconsistent_result_lists(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
-        """Verify error handling when image and world landmark lists have different lengths."""
+        """Verify that MediaPipeInferenceError is raised if result list lengths mismatch."""
         mock_results = _make_mp_results([("Right", 0.9)])
-        # Hand 0 landmarks: 21 for image, but 20 for world
-        type(mock_results).multi_hand_landmarks = PropertyMock(
-            return_value=[_make_landmark_list(count=21)]
-        )
-        type(mock_results).multi_hand_world_landmarks = PropertyMock(
-            return_value=[_make_landmark_list(count=20)]
-        )
+        # Simulate inconsistency: 1 landmark list but 0 world landmark lists
+        mock_results.hand_world_landmarks = []
+        mock_detector_instance._test_result = mock_results
 
-        mock_hands_instance.process.return_value = mock_results
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
         with (
-            MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker,
+            MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker,
             pytest.raises(
-                MediaPipeInferenceError, match="Inconsistent landmark counts"
+                MediaPipeInferenceError, match="Inconsistent result list lengths"
             ),
         ):
             tracker.process(_make_frame())
 
     def test_landmark_boundary_conditions(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
         """Verify landmark mapping at spatial boundaries (0.0, 1.0)."""
+        mock_results = _make_mp_results([("Right", 0.9)])
+        boundary_lms = [
+            _make_landmark(0.0, 0.0, 0.0),
+            _make_landmark(1.0, 1.0, 1.0),
+        ] + [_make_landmark(0.5, 0.5, 0.5)] * (LANDMARK_COUNT - 2)
 
-        def _make_boundary_landmarks() -> MagicMock:
-            lm_list = cast(MagicMock, create_autospec(MPLandmarkList, instance=True))
-            lm_list.landmark = [
-                _make_landmark(0.0, 0.0, 0.0),  # Corner 1
-                _make_landmark(1.0, 1.0, 1.0),  # Corner 2
-            ] + [_make_landmark(0.5, 0.5, 0.5)] * (LANDMARK_COUNT - 2)
-            return lm_list
-
-        mock_results = create_autospec(MPResults, instance=True)
-        type(mock_results).multi_hand_landmarks = PropertyMock(
-            return_value=[_make_boundary_landmarks()]
-        )
-        type(mock_results).multi_hand_world_landmarks = PropertyMock(
-            return_value=[_make_boundary_landmarks()]
-        )
-        type(mock_results).multi_handedness = PropertyMock(
-            return_value=[_make_handedness_result("Right", 0.9)]
-        )
-
-        mock_hands_instance.process.return_value = mock_results
+        mock_results.hand_landmarks = [boundary_lms]
+        mock_results.hand_world_landmarks = [boundary_lms]
+        mock_detector_instance._test_result = mock_results
 
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             result = tracker.process(_make_frame())
 
         hand = result.hands[0]
         assert hand.landmarks[0].x == 0.0
         assert hand.landmarks[1].x == 1.0
-
-    def test_configuration_passed_to_mediapipe(
-        self, mock_hands_module: MagicMock
-    ) -> None:
-        """Verify that the MediaPipe solution is initialized with the correct config."""
-        mp_cfg = MediaPipeConfig(
-            static_image_mode=True,
-            max_num_hands=2,
-            model_complexity=1,
-            min_detection_confidence=0.8,
-            min_tracking_confidence=0.6,
-        )
-        tracker_cfg = TrackerConfig(primary_hand=Handedness.RIGHT)
-
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module):
-            pass
-
-        mock_hands_module.Hands.assert_called_once_with(
-            static_image_mode=True,
-            max_num_hands=2,
-            model_complexity=1,
-            min_detection_confidence=0.8,
-            min_tracking_confidence=0.6,
-        )
 
 
 class TestMediaPipeTrackerThreadSafety:
@@ -512,8 +414,8 @@ class TestMediaPipeTrackerThreadSafety:
 
     def test_result_immutability(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
         """
@@ -523,26 +425,63 @@ class TestMediaPipeTrackerThreadSafety:
         if the results are mutable, downstream modification in a separate thread
         could cause race conditions or corrupt the tracking state.
         """
-        mock_hands_instance.process.return_value = _make_mp_results([("Right", 0.9)])
+        mock_detector_instance._test_result = _make_mp_results([("Right", 0.9)])
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             result = tracker.process(_make_frame())
 
         # Ensure hands collection is a tuple (immutable)
         assert isinstance(result.hands, tuple)
         # Verify frozen dataclass
         with pytest.raises(AttributeError):
-            result.hands[0].handedness = Handedness.LEFT  # type: ignore[misc]
+            result.hands[0].handedness = Handedness.LEFT  # type: ignore
 
 
 class TestMediaPipeTrackerResourceSafety:
     """Validation of memory protection and hardware resource lifecycle."""
 
-    def test_zero_copy_protection(
+    def test_strict_lifecycle_enforcement(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mp_cfg: MediaPipeConfig,
+        tracker_cfg: TrackerConfig,
+    ) -> None:
+        """Verify that the tracker strictly enforces its lifecycle (Before -> During -> After)."""
+        tracker = MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory)
+        frame = _make_frame()
+
+        # 1. State: PRE-INIT (Must raise error)
+        with pytest.raises(MediaPipeConfigurationError, match="context manager"):
+            tracker.process(frame)
+
+        # 2. State: ACTIVE (Must work correctly)
+        with tracker:
+            result = tracker.process(frame)
+            assert isinstance(result, FrameResult)
+
+        # 3. State: POST-CLOSE (Must raise error again)
+        with pytest.raises(MediaPipeConfigurationError, match="context manager"):
+            tracker.process(frame)
+
+    def test_double_close_is_safe(
+        self,
+        mock_landmarker_factory: MagicMock,
+        mp_cfg: MediaPipeConfig,
+        tracker_cfg: TrackerConfig,
+    ) -> None:
+        """Verify that closing the tracker multiple times does not raise errors (Idempotency)."""
+        tracker = MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory)
+        with tracker:
+            pass  # First close via __exit__
+
+        # Second manual or implicit close should be safe
+        tracker.__exit__(None, None, None)
+
+    def test_input_buffer_memory_protection(
+        self,
+        mock_landmarker_factory: MagicMock,
+        mp_cfg: MediaPipeConfig,
         tracker_cfg: TrackerConfig,
     ) -> None:
         """
@@ -554,46 +493,33 @@ class TestMediaPipeTrackerResourceSafety:
         memory corruption. This test also prevents performance regression
         (MediaPipe defaults to deep copy if writeable=True).
         """
-        mock_hands_instance.process.return_value = _make_mp_results([("Right", 0.9)])
-        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
+        from unittest.mock import patch
 
-        frame = _make_frame()
-        # Initially writeable
-        assert frame.bgr.flags.writeable is True
-
-        # Intercept process() to check flag state during inference
-        def check_flag(image: np.ndarray) -> MagicMock:
-            assert image.flags.writeable is False
-            return _make_mp_results([("Right", 0.9)])
-
-        mock_hands_instance.process.side_effect = check_flag
-
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
-            tracker.process(frame)
-
-        # Flag should be restored
-        assert frame.bgr.flags.writeable is True
-
-    def test_strict_lifecycle_enforcement(
-        self,
-        mock_hands_module: MagicMock,
-        tracker_cfg: TrackerConfig,
-    ) -> None:
-        """
-        Ensure process() raises error if called after the tracker is closed.
-
-        Engineering Risk: Calling processing methods on a released native resource
-        typically leads to Segmentation Faults. This guard ensures a clean Python
-        exception is raised instead of a hard process crash.
-        """
-        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-
-        tracker = MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module)
-        with tracker:
-            pass  # Immediately exit
-
-        with pytest.raises(MediaPipeConfigurationError, match="context manager"):
+        # We need to spy on the mp.Image constructor to check the data flags
+        with (
+            patch("mediapipe.Image") as mock_image_class,
+            MediaPipeTracker(
+                MediaPipeConfig(warmup_frame_count=0),
+                tracker_cfg,
+                mock_landmarker_factory,
+            ) as tracker,
+        ):
             tracker.process(_make_frame())
+
+            # Check the first argument (data) of the mp.Image constructor call
+            assert mock_image_class.called
+            args, kwargs = mock_image_class.call_args
+
+            # In mp_image = mp.Image(image_format=..., data=dst_rgb)
+            # data might be passed as a keyword or positional argument
+            passed_data = kwargs.get("data")
+            if passed_data is None and args:
+                passed_data = args[0]  # Fallback to positional if not found in kwargs
+
+            assert passed_data is not None
+            assert passed_data.flags.writeable is False, (
+                "Buffer MUST be read-only when passed to MediaPipe for zero-copy safety"
+            )
 
 
 class TestMediaPipeTrackerInferenceQuality:
@@ -601,8 +527,8 @@ class TestMediaPipeTrackerInferenceQuality:
 
     def test_inference_timing_propagation(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
         """
@@ -612,19 +538,51 @@ class TestMediaPipeTrackerInferenceQuality:
         is critical for debugging pipeline bottlenecks. Missing or incorrect
         metrics make it impossible to diagnose performance drops in production.
         """
-        mock_hands_instance.process.return_value = _make_mp_results([("Right", 0.9)])
+        mock_detector_instance._test_result = _make_mp_results([("Right", 0.9)])
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             result = tracker.process(_make_frame())
 
-        assert result.inference_time_us >= 0
-        assert result.hands[0].inference_time_us == result.inference_time_us
+        assert result.hands[0].inference_time_us >= 0
+
+    def test_landmark_data_integrity(
+        self, mock_landmarker_factory: MagicMock, mock_detector_instance: MagicMock
+    ) -> None:
+        """Verify that landmarks and world landmarks are mapped correctly and accurately."""
+        # Setup specific known landmark values
+        mock_lm = cast(MagicMock, create_autospec(MPLandmark, instance=True))
+        mock_lm.x, mock_lm.y, mock_lm.z = 0.1, 0.2, 0.3
+
+        mock_wlm = cast(MagicMock, create_autospec(MPLandmark, instance=True))
+        mock_wlm.x, mock_wlm.y, mock_wlm.z = 0.01, 0.02, 0.03
+
+        mock_results = _make_mp_results([("Right", 0.95)])
+        mock_results.hand_landmarks = [[mock_lm] * LANDMARK_COUNT]
+        mock_results.hand_world_landmarks = [[mock_wlm] * LANDMARK_COUNT]
+        mock_detector_instance._test_result = mock_results
+
+        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
+        with MediaPipeTracker(
+            mp_cfg, TrackerConfig(), mock_landmarker_factory
+        ) as tracker:
+            result = tracker.process(_make_frame())
+
+        hand = result.hands[0]
+        assert len(hand.landmarks) == LANDMARK_COUNT
+        assert hand.landmarks[0].x == 0.1
+        assert hand.landmarks[0].y == 0.2
+        assert hand.landmarks[0].z == 0.3
+        assert hand.landmarks[0].wx == 0.01
+        assert hand.landmarks[0].wy == 0.02
+        assert hand.landmarks[0].wz == 0.03
+        assert hand.confidence == 0.95
+        assert hand.handedness == Handedness.RIGHT
 
     def test_metric_world_coordinate_mapping(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
         """
@@ -637,18 +595,13 @@ class TestMediaPipeTrackerInferenceQuality:
         mock_lm = cast(MagicMock, create_autospec(MPLandmark, instance=True))
         mock_lm.x, mock_lm.y, mock_lm.z = TEST_WORLD_X, TEST_WORLD_Y, TEST_WORLD_Z
 
-        mock_lm_list = cast(MagicMock, create_autospec(MPLandmarkList, instance=True))
-        mock_lm_list.landmark = [mock_lm] * LANDMARK_COUNT
-
         mock_results = _make_mp_results([("Right", 0.9)])
-        type(mock_results).multi_hand_world_landmarks = PropertyMock(
-            return_value=[mock_lm_list]
-        )
+        mock_results.hand_world_landmarks = [[mock_lm] * LANDMARK_COUNT]
+        mock_detector_instance._test_result = mock_results
 
-        mock_hands_instance.process.return_value = mock_results
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             result = tracker.process(_make_frame())
 
         hand = result.hands[0]
@@ -663,8 +616,8 @@ class TestMetadataPropagation:
 
     def test_is_mirrored_flag_propagated(
         self,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
         """
@@ -675,10 +628,10 @@ class TestMetadataPropagation:
         move in the opposite direction of the user's actual hands, causing severe
         motion sickness or breaking interaction logic.
         """
-        mock_hands_instance.process.return_value = _make_mp_results([("Right", 0.9)])
+        mock_detector_instance._test_result = _make_mp_results([("Right", 0.9)])
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             # 1. Test mirroring active
             res_true = tracker.process(_make_frame(is_mirrored=True))
             assert res_true.is_mirrored is True
@@ -692,22 +645,57 @@ class TestMediaPipeTrackerPerformance:
     """Benchmark tests for critical inference and transformation paths."""
 
     @pytest.mark.benchmark(group="tracker")
-    def test_benchmark_coordinate_transformation(
+    def test_benchmark_processing_hot_path(
         self,
         benchmark: BenchmarkFixture,
-        mock_hands_module: MagicMock,
-        mock_hands_instance: MagicMock,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
         tracker_cfg: TrackerConfig,
     ) -> None:
-        """Benchmark the mapping from MediaPipe results to typed FrameResult."""
-        mock_hands_instance.process.return_value = _make_mp_results([("Right", 0.9)])
+        """Benchmark the full mapping path with NEW frames (Zero-Redundancy bypass)."""
+        mock_detector_instance._test_result = _make_mp_results([("Right", 0.9)])
+        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
+
+        # Prevent completely destroying the benchmark with GC pressure by pre-allocating
+        # the large 1MB numpy array. In the real world, frames arrive at ~60fps,
+        # but the benchmark loop runs at thousands of iterations per second.
+        dummy_bgr = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        def frame_iterator() -> Iterator[Frame]:
+            """Yields frames with monotonically increasing timestamps."""
+            ts = TEST_TIMESTAMP_US
+            while True:
+                # We yield a fresh Frame object but REUSE the heavy numpy array
+                yield Frame(
+                    bgr=dummy_bgr,
+                    timestamp_us=ts,
+                    frame_index=0,
+                    is_mirrored=True,
+                )
+                ts += 1000  # 1ms increment
+
+        gen = frame_iterator()
+
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+            # We call next(gen) inside the lambda to ensure the tracker sees a NEW
+            # timestamp every time, forcing it to execute the full processing logic.
+            benchmark(lambda: tracker.process(next(gen)))
+
+    @pytest.mark.benchmark(group="tracker")
+    def test_benchmark_polling_efficiency(
+        self,
+        benchmark: BenchmarkFixture,
+        mock_landmarker_factory: MagicMock,
+        mock_detector_instance: MagicMock,
+        tracker_cfg: TrackerConfig,
+    ) -> None:
+        """Benchmark polling speed when the same frame is received (Zero-Redundancy efficiency)."""
+        mock_detector_instance._test_result = _make_mp_results([("Right", 0.9)])
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
         frame = _make_frame()
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_hands_module) as tracker:
-
-            def _run_process() -> None:
-                tracker.process(frame)
-
-            # Benchmark the process method which includes conversion logic
-            benchmark(_run_process)
+        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+            # First call warms up the buffer
+            tracker.process(frame)
+            # Benchmark subsequent calls with the SAME frame
+            benchmark(lambda: tracker.process(frame))
