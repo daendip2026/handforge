@@ -18,11 +18,11 @@ import pytest
 from hand_tracker.capture import (
     MAX_CONSECUTIVE_FAILURES,
     CaptureError,
-    Frame,
     WebcamCapture,
     _TimeAnchor,
 )
 from hand_tracker.config import CameraConfig
+from hand_tracker.types import Frame
 
 
 @pytest.fixture
@@ -166,7 +166,7 @@ class TestWebcamCaptureOpen:
         expected_backend: str,
     ) -> None:
         monkeypatch.setattr(platform, "system", lambda: os_name)
-        cfg = CameraConfig(backend=cfg_backend)  # type: ignore
+        cfg = CameraConfig(backend=cfg_backend)  # type: ignore[arg-type]
 
         with WebcamCapture(cfg) as wc:
             assert wc.device_info is not None

@@ -16,13 +16,8 @@ if TYPE_CHECKING:
 import numpy as np
 import pytest
 
-from hand_tracker.capture import Frame
-from hand_tracker.config import Handedness, MediaPipeConfig, TrackerConfig
+from hand_tracker.config import MediaPipeConfig, TrackerConfig
 from hand_tracker.mediapipe_tracker import (
-    LANDMARK_COUNT,
-    FrameResult,
-    HandLandmark,
-    LandmarkPoint,
     MediaPipeConfigurationError,
     MediaPipeInferenceError,
     MediaPipeTracker,
@@ -32,6 +27,14 @@ from hand_tracker.mediapipe_tracker import (
     MPLandmark,
     MPLandmarkList,
     MPResults,
+)
+from hand_tracker.types import (
+    LANDMARK_COUNT,
+    Frame,
+    FrameResult,
+    Handedness,
+    HandLandmark,
+    LandmarkPoint,
     RawHandResult,
 )
 

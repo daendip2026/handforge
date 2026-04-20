@@ -50,6 +50,8 @@ import numpy.typing as npt
 
 from hand_tracker.config import CameraConfig
 from hand_tracker.logger import get_logger
+from hand_tracker.types import Frame
+from hand_tracker.utils import US_PER_MS, US_PER_SEC
 
 log = get_logger(__name__)
 
@@ -76,30 +78,6 @@ _BACKEND_NAME_MAP: Final[dict[int, str]] = {
 
 class CaptureError(RuntimeError):
     """Raised when the capture device cannot be opened or repeatedly fails."""
-
-
-@dataclass(frozen=True, slots=True)
-class Frame:
-    """
-    A single captured video frame with acquisition metadata.
-
-    Attributes
-    ----------
-    bgr:
-        Raw BGR image as a (H, W, 3) uint8 ndarray.
-        Ownership transfers to the caller — do not write to it from
-        the capture layer after yielding.
-    timestamp_us:
-        Acquisition timestamp in microseconds since Unix epoch.
-        Taken immediately after cap.read() returns.
-    frame_index:
-        Monotonically increasing frame counter, reset to 0 on open().
-    """
-
-    bgr: npt.NDArray[np.uint8]
-    timestamp_us: int
-    frame_index: int
-    is_mirrored: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,11 +250,11 @@ class _TimeAnchor:
         """
         perf = time.perf_counter()
         wall = time.time()
-        return cls(wall_us=int(wall * 1_000_000), perf_origin=perf)
+        return cls(wall_us=int(wall * US_PER_SEC), perf_origin=perf)
 
     def current_us(self) -> int:
         """Return current wall-clock time in microseconds."""
-        delta_us = int((time.perf_counter() - self.perf_origin) * 1_000_000)
+        delta_us = int((time.perf_counter() - self.perf_origin) * US_PER_SEC)
         return self.wall_us + delta_us
 
 
@@ -430,7 +408,7 @@ class WebcamCapture:
             return
 
         last_ts_us = self._anchor.wall_us
-        expected_delta_us = (1.0 / self.device_info.actual_fps) * 1_000_000
+        expected_delta_us = (1.0 / self.device_info.actual_fps) * US_PER_SEC
         jitter_threshold_us = expected_delta_us * self._cfg.jitter_threshold_multiplier
 
         while not self._stop_event.is_set():
@@ -465,8 +443,8 @@ class WebcamCapture:
                 log.warning(
                     "acquisition jitter detected",
                     extra={
-                        "delta_ms": delta_us / 1000,
-                        "expected_ms": expected_delta_us / 1000,
+                        "delta_ms": delta_us / US_PER_MS,
+                        "expected_ms": expected_delta_us / US_PER_MS,
                     },
                 )
 

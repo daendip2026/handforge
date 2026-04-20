@@ -13,12 +13,12 @@ from pydantic import ValidationError
 from hand_tracker.config import (
     AppConfig,
     CameraConfig,
-    Handedness,
     LoggingConfig,
     MediaPipeConfig,
     TrackerConfig,
     load_config,
 )
+from hand_tracker.types import Handedness
 
 
 @pytest.fixture(autouse=True)
@@ -91,7 +91,7 @@ class TestCameraConfig:
 
         # Invalid
         with pytest.raises(ValidationError):
-            CameraConfig(backend="INVALID_BACKEND")  # type: ignore
+            CameraConfig(backend="INVALID_BACKEND")  # type: ignore[arg-type]
 
     def test_fourcc_validation(self) -> None:
         # Valid
@@ -166,7 +166,7 @@ class TestLoggingConfig:
 
     def test_invalid_level(self) -> None:
         with pytest.raises(ValidationError):
-            LoggingConfig(level="VERBOSE")  # type: ignore
+            LoggingConfig(level="VERBOSE")  # type: ignore[arg-type]
 
     def test_too_small_max_bytes(self) -> None:
         with pytest.raises(ValidationError):
@@ -207,7 +207,7 @@ class TestAppConfig:
 
     def test_extra_fields_forbidden(self) -> None:
         with pytest.raises(ValidationError):
-            AppConfig(unknown_field="value")  # type: ignore
+            AppConfig(unknown_field="value")  # type: ignore[call-arg]
 
     def test_both_requires_max_hands_2(self) -> None:
         """Verify that primary_hand='Both' enforces max_num_hands >= 2."""

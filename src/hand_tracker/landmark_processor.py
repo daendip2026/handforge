@@ -28,76 +28,18 @@ from __future__ import annotations
 import collections
 import logging
 import math
-from dataclasses import dataclass
-from typing import Final
 
-from hand_tracker.config import Handedness
 from hand_tracker.logger import get_logger
-from hand_tracker.mediapipe_tracker import FrameResult, LandmarkPoint
+from hand_tracker.types import (
+    FrameResult,
+    ProcessedFrame,
+    ProcessedHand,
+)
+from hand_tracker.utils import (
+    US_PER_SEC,
+)
 
 log = get_logger(__name__)
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# Time Conversion
-US_PER_MS: Final[int] = 1000  # Microseconds per millisecond
-US_PER_SEC: Final[int] = 1_000_000  # Microseconds per second
-
-# Console UI Aesthetics
-CONSOLE_WIDTH: Final[int] = 100  # Width of the separator line in summary
-
-
-# ---------------------------------------------------------------------------
-# Output type
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class ProcessedHand:
-    """
-    Data container for a single hand's processed results.
-
-    Encapsulates landmarks and classification data for a single entity
-    detected within a frame. This structure is intended to be the
-    primary input for filtering stages.
-
-    Attributes:
-        landmarks: Ordered collection of 21 landmark points.
-        handedness: Classification (Left/Right) for this specific hand instance.
-        confidence: Normalised score (0.0-1.0) of the detection/tracking.
-    """
-
-    landmarks: tuple[LandmarkPoint, ...]
-    handedness: Handedness
-    confidence: float
-
-
-@dataclass(frozen=True, slots=True)
-class ProcessedFrame:
-    """
-    Canonical pipeline-internal representation of a processed multi-hand frame.
-
-    Acts as the source of truth for all downstream stages (Protobuf
-    serialisers, smoothing filters, etc.). Once created, this object
-    is immutable to prevent state corruption across processing threads.
-
-    Attributes:
-        frame_index: Monotonically increasing frame identifier from source.
-        timestamp_us: Acquisition timestamp in microseconds.
-        fps: Estimated sensor throughput at the moment of this frame.
-        hands: Collection of detected hands (0, 1, or 2).
-        inference_time_us: Total time spent by tracking layer in microseconds.
-        is_mirrored: Whether the frame data was horizontally flipped.
-    """
-
-    hands: tuple[ProcessedHand, ...]
-    timestamp_us: int
-    frame_index: int
-    is_mirrored: bool
-    inference_time_us: int
-    fps: float
 
 
 # ---------------------------------------------------------------------------
@@ -279,74 +221,8 @@ class LandmarkProcessor:
 
 
 # ---------------------------------------------------------------------------
-# Console summary (pure function — no side effects)
+# Debug utilities
 # ---------------------------------------------------------------------------
-
-# Wrist + fingertip indices for the compact summary view.
-# Showing all 21 landmarks floods the terminal; these 6 points give
-# an immediate visual sanity check for both IK and world coords.
-_SUMMARY_INDICES: Final[tuple[int, ...]] = (0, 4, 8, 12, 16, 20)
-_SUMMARY_NAMES: Final[dict[int, str]] = {
-    0: "WRIST     ",
-    4: "THUMB_TIP ",
-    8: "INDEX_TIP ",
-    12: "MIDDLE_TIP",
-    16: "RING_TIP  ",
-    20: "PINKY_TIP ",
-}
-
-
-def console_summary(frame: ProcessedFrame) -> str:
-    """
-    Return a human-readable multi-line summary of a ProcessedFrame.
-
-    Intended for terminal verification.
-    Shows wrist + fingertips for each detected hand.
-    """
-    fps_str = f"{frame.fps:6.1f}" if not math.isnan(frame.fps) else "   ---"
-    mirror_str = "(mirrored)" if frame.is_mirrored else ""
-
-    lines: list[str] = [
-        "═" * CONSOLE_WIDTH,
-        (
-            f" FRAME: {frame.frame_index:>6}  │  "
-            f"TS: {frame.timestamp_us}  │  "
-            f"FPS: {fps_str}  │  "
-            f"Inference: {frame.inference_time_us / US_PER_MS:5.1f}ms  "
-            f"{mirror_str}"
-        ),
-        "─" * CONSOLE_WIDTH,
-    ]
-
-    if not frame.hands:
-        lines.append("  [!] NO HANDS DETECTED")
-        lines.append("═" * CONSOLE_WIDTH)
-        return "\n".join(lines)
-
-    for i, hand in enumerate(frame.hands):
-        lines.extend(
-            [
-                "",
-                f"  HAND #{i + 1}: {hand.handedness} (conf={hand.confidence:.2f})",
-                f"  {'NAME':<12}  "
-                f"{'pos_x':>7} {'pos_y':>7} {'pos_z':>8}    "
-                f"{'wld_x':>8} {'wld_y':>8} {'wld_z':>8}",
-                f"  {'':─<12}  {'':─>7} {'':─>7} {'':─>8}    {'':─>8} {'':─>8} {'':─>8}",
-            ]
-        )
-
-        lm_map = {lm.index: lm for lm in hand.landmarks}
-        for idx in _SUMMARY_INDICES:
-            lm = lm_map[idx]
-            name = _SUMMARY_NAMES[idx]
-            lines.append(
-                f"  {name}  "
-                f"{lm.x:7.4f} {lm.y:7.4f} {lm.z:8.4f}    "
-                f"{lm.wx:8.4f} {lm.wy:8.4f} {lm.wz:8.4f}"
-            )
-
-    lines.append("═" * CONSOLE_WIDTH)
-    return "\n".join(lines)
 
 
 def full_landmark_dump(frame: ProcessedFrame) -> str:

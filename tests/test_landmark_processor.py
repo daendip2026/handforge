@@ -11,19 +11,22 @@ if TYPE_CHECKING:
 
 import pytest
 
-from hand_tracker.config import Handedness
 from hand_tracker.landmark_processor import (
     LandmarkProcessor,
-    ProcessedFrame,
     _FpsEstimator,
-    console_summary,
     full_landmark_dump,
 )
-from hand_tracker.mediapipe_tracker import (
+from hand_tracker.types import (
     LANDMARK_COUNT,
     FrameResult,
+    Handedness,
     LandmarkPoint,
+    ProcessedFrame,
     RawHandResult,
+)
+from hand_tracker.utils import (
+    CONSOLE_WIDTH,
+    console_summary,
 )
 
 # ---------------------------------------------------------------------------
@@ -502,7 +505,6 @@ class TestConsoleSummary:
 
     def test_summary_width_boundary(self, processed_frame: ProcessedFrame) -> None:
         """Scenario: Production design constraint. Expected: Summary never exceeds console width."""
-        from hand_tracker.landmark_processor import CONSOLE_WIDTH
 
         summary = console_summary(processed_frame)
         for line in summary.splitlines():

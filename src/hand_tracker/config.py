@@ -13,7 +13,6 @@ Call load_config() once at process startup and pass it through dependency inject
 
 from __future__ import annotations
 
-from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -25,6 +24,8 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
+
+from hand_tracker.types import Handedness
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -44,14 +45,6 @@ class HandForgeConfigModel(BaseModel):
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
-
-
-class Handedness(StrEnum):
-    """Enumeration for hand side classification."""
-
-    LEFT = "Left"
-    RIGHT = "Right"
-    BOTH = "Both"
 
 
 # ---------------------------------------------------------------------------

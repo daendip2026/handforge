@@ -35,17 +35,24 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
-from enum import IntEnum
 from typing import Final, NamedTuple, Protocol, runtime_checkable
 
 import cv2
 import mediapipe as mp
 import numpy as np
 
-from hand_tracker.capture import Frame
-from hand_tracker.config import Handedness, MediaPipeConfig, TrackerConfig
+from hand_tracker.config import MediaPipeConfig, TrackerConfig
 from hand_tracker.logger import get_logger
+from hand_tracker.types import (
+    LANDMARK_COUNT,
+    Frame,
+    FrameResult,
+    Handedness,
+    HandLandmark,
+    LandmarkPoint,
+    RawHandResult,
+)
+from hand_tracker.utils import NS_PER_US
 
 log = get_logger(__name__)
 
@@ -123,44 +130,6 @@ class MPHandsSolution(Protocol):
     def close(self) -> None: ...
 
 
-# ---------------------------------------------------------------------------
-# Constants & Specifications
-# ---------------------------------------------------------------------------
-
-# Time unit conversions
-US_PER_SEC: Final[int] = 1_000_000  # microseconds per second
-NS_PER_US: Final[int] = 1_000  # nanoseconds per microsecond
-
-
-class HandLandmark(IntEnum):
-    """MediaPipe hand landmark indices."""
-
-    WRIST = 0
-    THUMB_CMC = 1
-    THUMB_MCP = 2
-    THUMB_IP = 3
-    THUMB_TIP = 4
-    INDEX_MCP = 5
-    INDEX_PIP = 6
-    INDEX_DIP = 7
-    INDEX_TIP = 8
-    MIDDLE_MCP = 9
-    MIDDLE_PIP = 10
-    MIDDLE_DIP = 11
-    MIDDLE_TIP = 12
-    RING_MCP = 13
-    RING_PIP = 14
-    RING_DIP = 15
-    RING_TIP = 16
-    PINKY_MCP = 17
-    PINKY_PIP = 18
-    PINKY_DIP = 19
-    PINKY_TIP = 20
-
-
-# Derived specifications
-LANDMARK_COUNT: Final[int] = len(HandLandmark)
-
 # Pre-cached landmark names for hot-path performance.
 # Avoids repeated IntEnum.__call__ + .name lookups during per-frame
 # landmark construction, eliminating ~21 temporary IntEnum objects per frame.
@@ -187,96 +156,7 @@ class MediaPipeConfigurationError(MediaPipeError):
 
 
 # ---------------------------------------------------------------------------
-# Public data types
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class LandmarkPoint:
-    """
-    Single landmark in both coordinate spaces.
-
-    position:
-        Normalised image coordinates.
-        x, y in [0.0, 1.0] relative to frame width/height.
-        z is relative depth (negative = closer to camera).
-        Used for Unity IK normalised input.
-
-    world_position:
-        Metric 3D coordinates in metres.
-        Origin is the wrist (landmark 0).
-        Real-world scale; used for physical interaction simulation.
-    """
-
-    index: int
-    name: str
-
-    # Normalised image space
-    x: float
-    y: float
-    z: float
-
-    # World space (metres)
-    wx: float
-    wy: float
-    wz: float
-
-
-@dataclass(frozen=True, slots=True)
-class RawHandResult:
-    """
-    Fully typed, MediaPipe-agnostic result for one detected hand.
-
-    landmarks:
-        Tuple of exactly LANDMARK_COUNT (21) LandmarkPoints,
-        ordered by MediaPipe landmark index.
-    handedness:
-        Handedness classification (Left or Right).
-    confidence:
-        Handedness classification confidence in [0.0, 1.0].
-    timestamp_us:
-        Inherited from the source Frame — acquisition time in microseconds.
-    frame_index:
-        Inherited from the source Frame.
-    inference_time_us:
-        Time spent inside mp_hands.process() in microseconds.
-    """
-
-    landmarks: tuple[LandmarkPoint, ...]
-    handedness: Handedness
-    confidence: float
-    timestamp_us: int
-    frame_index: int
-    inference_time_us: int
-
-
-@dataclass(frozen=True, slots=True)
-class FrameResult:
-    """
-    Collection of all hands detected and filtered in a single frame.
-
-    hands:
-        Tuple of RawHandResults for each detected hand.
-    timestamp_us:
-        Inherited from the source Frame — acquisition time.
-    frame_index:
-        Inherited from the source Frame.
-    is_mirrored:
-        Indicates if the source frame was horizontally flipped. Critical for
-        consistent coordinate mapping in Unity space.
-    inference_time_us:
-        Time spent inside mp_hands.process() in microseconds.
-    """
-
-    hands: tuple[RawHandResult, ...]
-    timestamp_us: int
-    frame_index: int
-    is_mirrored: bool
-    inference_time_us: int
-
-
-# ---------------------------------------------------------------------------
-# Internal extraction helpers
+# Extraction types
 # ---------------------------------------------------------------------------
 
 
