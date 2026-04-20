@@ -99,7 +99,6 @@ class RawHandResult:
     handedness: Handedness
     confidence: float
     timestamp_us: int
-    frame_index: int
     inference_time_us: int
 
 

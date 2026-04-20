@@ -87,7 +87,6 @@ def raw_hand_factory(
     """Provides a factory for RawHandResult objects."""
 
     def _create(
-        frame_index: int = 0,
         timestamp_us: int = _BASE_TS,
         handedness: Handedness = Handedness.RIGHT,
         confidence: float = _DEFAULT_CONFIDENCE,
@@ -97,7 +96,6 @@ def raw_hand_factory(
             handedness=handedness,
             confidence=confidence,
             timestamp_us=timestamp_us,
-            frame_index=frame_index,
             inference_time_us=_DEFAULT_INFERENCE_US,
         )
 
@@ -117,9 +115,7 @@ def frame_result_factory(
         is_mirrored: bool = False,
     ) -> FrameResult:
         if hands is None:
-            hands = (
-                raw_hand_factory(frame_index=frame_index, timestamp_us=timestamp_us),
-            )
+            hands = (raw_hand_factory(timestamp_us=timestamp_us),)
 
         return FrameResult(
             hands=hands,
@@ -471,7 +467,6 @@ class TestConsoleSummary:
                         handedness=Handedness.RIGHT,
                         confidence=0.99,
                         timestamp_us=_BASE_TS,
-                        frame_index=_DEFAULT_WINDOW_SIZE + 1,
                         inference_time_us=_DEFAULT_INFERENCE_US,
                     ),
                 ),
