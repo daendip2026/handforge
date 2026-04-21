@@ -6,6 +6,7 @@ import platform
 import queue
 import threading
 import time
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -24,6 +25,7 @@ from hand_tracker.capture import (
 )
 from hand_tracker.config import CameraConfig
 from hand_tracker.types import Frame
+from hand_tracker.utils import US_PER_MS
 
 
 @pytest.fixture
@@ -413,8 +415,19 @@ class TestWebcamCapturePerformance:
 
     Terminology:
     - Target FPS: Simulates the hardware shutter/sensor interval using the mock producer.
-    - Latency: The time elapsed from a frame being requested to it being delivered.
+    - Transfer Latency: The time elapsed from a frame being acquired by the producer
+      to it being delivered to the consumer. This isolate software overhead from
+      hardware wait times.
     """
+
+    def _measure_transfer_latency(
+        self, gen: Iterator[Frame], wc: WebcamCapture
+    ) -> float:
+        """Helper to measure the delta between acquisition and delivery."""
+        frame = next(gen)
+        # Calculate delta from hardware acquisition to consumer delivery
+        now = wc._anchor.current_us()  # type: ignore[union-attr]
+        return (now - frame.timestamp_us) / US_PER_MS
 
     @pytest.mark.benchmark(group="capture-latency-unthrottled")
     def test_benchmark_latency_unthrottled(
@@ -430,9 +443,9 @@ class TestWebcamCapturePerformance:
             # Pre-create iterator once: avoids per-call generator allocation
             # that would inflate measurement with __iter__ re-entry overhead.
             gen = iter(wc)
-            # Use a lambda for stable wrapping and lower iterations to avoid starvation.
             benchmark.pedantic(
-                lambda: next(gen),
+                self._measure_transfer_latency,
+                args=(gen, wc),
                 iterations=50,
                 rounds=50,
                 warmup_rounds=5,
@@ -452,8 +465,8 @@ class TestWebcamCapturePerformance:
             gen = iter(wc)
             # 30fps = 33.3ms interval. 40 rounds take ~1.3 seconds.
             benchmark.pedantic(
-                next,
-                args=(gen,),
+                self._measure_transfer_latency,
+                args=(gen, wc),
                 iterations=1,
                 rounds=40,
                 warmup_rounds=5,
@@ -473,8 +486,8 @@ class TestWebcamCapturePerformance:
             gen = iter(wc)
             # 60fps = 16.6ms interval. 40 rounds take ~0.7 seconds.
             benchmark.pedantic(
-                next,
-                args=(gen,),
+                self._measure_transfer_latency,
+                args=(gen, wc),
                 iterations=1,
                 rounds=40,
                 warmup_rounds=5,
@@ -494,8 +507,8 @@ class TestWebcamCapturePerformance:
             gen = iter(wc)
             # 240fps = 4.16ms interval. 40 rounds take ~0.2 seconds.
             benchmark.pedantic(
-                next,
-                args=(gen,),
+                self._measure_transfer_latency,
+                args=(gen, wc),
                 iterations=1,
                 rounds=40,
                 warmup_rounds=10,
