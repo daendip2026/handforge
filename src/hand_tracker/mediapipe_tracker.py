@@ -402,7 +402,6 @@ class MediaPipeTracker:
             hands=hands,
             timestamp_us=frame.timestamp_us,
             frame_index=frame.frame_index,
-            is_mirrored=frame.is_mirrored,
             inference_time_us=inf_time,
         )
 
@@ -412,6 +411,5 @@ class MediaPipeTracker:
             hands=(),
             timestamp_us=frame.timestamp_us,
             frame_index=frame.frame_index,
-            is_mirrored=frame.is_mirrored,
             inference_time_us=0,
         )

@@ -25,7 +25,6 @@ class Frame:
     bgr: npt.NDArray[np.uint8]
     timestamp_us: int
     frame_index: int
-    is_mirrored: bool
 
 
 class Handedness(StrEnum):
@@ -95,7 +94,6 @@ class FrameResult:
     hands: tuple[RawHandResult, ...]
     timestamp_us: int
     frame_index: int
-    is_mirrored: bool
     inference_time_us: int
 
 
@@ -122,6 +120,5 @@ class ProcessedFrame:
     hands: tuple[ProcessedHand, ...]
     timestamp_us: int
     frame_index: int
-    is_mirrored: bool
     inference_time_us: int
     fps: float

@@ -192,7 +192,6 @@ class LandmarkProcessor:
             hands=processed_hands,
             timestamp_us=result.timestamp_us,
             frame_index=result.frame_index,
-            is_mirrored=result.is_mirrored,
             inference_time_us=result.inference_time_us,
             fps=fps,
         )

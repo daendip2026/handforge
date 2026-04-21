@@ -130,14 +130,12 @@ def auto_mock_model(mp_cfg: MediaPipeConfig) -> None:
 
 def _make_frame(
     frame_index: int = 0,
-    is_mirrored: bool = True,
     timestamp_us: int = TEST_TIMESTAMP_US,
 ) -> Frame:
     return Frame(
         bgr=np.zeros((480, 640, 3), dtype=np.uint8),
         timestamp_us=timestamp_us,
         frame_index=frame_index,
-        is_mirrored=is_mirrored,
     )
 
 
@@ -336,9 +334,7 @@ class TestMediaPipeTrackerEdgeCases:
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
         with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             result_none = tracker.process(
-                Frame(
-                    bgr=cast(Any, None), timestamp_us=0, frame_index=0, is_mirrored=True
-                )
+                Frame(bgr=cast(Any, None), timestamp_us=0, frame_index=0)
             )
             assert len(result_none.hands) == 0
 
@@ -615,36 +611,6 @@ class TestMediaPipeTrackerInferenceQuality:
         assert hand.world_landmarks[0, 2] == TEST_WORLD_Z
 
 
-class TestMetadataPropagation:
-    """Validation of metadata persistence across the inference pipeline."""
-
-    def test_is_mirrored_flag_propagated(
-        self,
-        mock_landmarker_factory: MagicMock,
-        mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
-    ) -> None:
-        """
-        Verify that the is_mirrored flag is correctly passed from Frame to FrameResult.
-
-        Engineering Risk: Coordinate mirroring is a critical metadata bit for Unity.
-        If this flag is lost or inverted in the pipeline, the 3D hands in VR/AR will
-        move in the opposite direction of the user's actual hands, causing severe
-        motion sickness or breaking interaction logic.
-        """
-        mock_detector_instance._test_result = _make_mp_results([("Right", 0.9)])
-        mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
-            # 1. Test mirroring active
-            res_true = tracker.process(_make_frame(is_mirrored=True))
-            assert res_true.is_mirrored is True
-
-            # 2. Test mirroring inactive
-            res_false = tracker.process(_make_frame(is_mirrored=False))
-            assert res_false.is_mirrored is False
-
-
 class TestMediaPipeTrackerPerformance:
     """Benchmark tests for critical inference and transformation paths."""
 
@@ -669,9 +635,7 @@ class TestMediaPipeTrackerPerformance:
             """Yields frames with monotonically increasing timestamps."""
             ts = TEST_TIMESTAMP_US
             while True:
-                yield Frame(
-                    bgr=dummy_bgr, timestamp_us=ts, frame_index=0, is_mirrored=True
-                )
+                yield Frame(bgr=dummy_bgr, timestamp_us=ts, frame_index=0)
                 ts += 1000
 
         gen = frame_iterator()

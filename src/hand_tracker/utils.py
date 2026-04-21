@@ -36,16 +36,13 @@ def console_summary(frame: ProcessedFrame) -> str:
     Return a human-readable multi-line summary of a ProcessedFrame.
     """
     fps_str = f"{frame.fps:6.1f}" if not math.isnan(frame.fps) else "   ---"
-    mirror_str = "(mirrored)" if frame.is_mirrored else ""
-
     lines: list[str] = [
         "═" * CONSOLE_WIDTH,
         (
             f" FRAME: {frame.frame_index:>6}  │  "
             f"TS: {frame.timestamp_us}  │  "
             f"FPS: {fps_str}  │  "
-            f"Inference: {frame.inference_time_us / US_PER_MS:5.1f}ms  "
-            f"{mirror_str}"
+            f"Inference: {frame.inference_time_us / US_PER_MS:5.1f}ms"
         ),
         "─" * CONSOLE_WIDTH,
     ]

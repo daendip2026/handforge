@@ -100,7 +100,6 @@ def frame_result_factory(
         hands: tuple[RawHandResult, ...] | None = None,
         frame_index: int = 0,
         timestamp_us: int = _BASE_TS,
-        is_mirrored: bool = False,
     ) -> FrameResult:
         if hands is None:
             hands = (raw_hand_factory(timestamp_us=timestamp_us),)
@@ -109,7 +108,6 @@ def frame_result_factory(
             hands=hands,
             timestamp_us=timestamp_us,
             frame_index=frame_index,
-            is_mirrored=is_mirrored,
             inference_time_us=_DEFAULT_INFERENCE_US,
         )
 
@@ -263,7 +261,6 @@ class TestLandmarkProcessor:
         raw_frame = frame_result_factory(
             frame_index=42,
             timestamp_us=_BASE_TS + 1_000,
-            is_mirrored=True,
             hands=(raw_hand_factory(handedness=Handedness.LEFT, confidence=0.88),),
         )
         processed = processor.update(raw_frame)
@@ -271,7 +268,6 @@ class TestLandmarkProcessor:
         assert processed.frame_index == 42
         assert processed.timestamp_us == _BASE_TS + 1_000
         assert processed.inference_time_us == _DEFAULT_INFERENCE_US
-        assert processed.is_mirrored is True
         assert len(processed.hands) == 1
         assert processed.hands[0].handedness == Handedness.LEFT
         assert processed.hands[0].confidence == pytest.approx(0.88)

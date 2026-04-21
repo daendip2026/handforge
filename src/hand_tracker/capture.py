@@ -346,6 +346,7 @@ class WebcamCapture:
                     "requested_width": self._cfg.width,
                     "requested_height": self._cfg.height,
                     "requested_fps": self._cfg.fps,
+                    "mirror_input": self._cfg.mirror_input,
                 },
             )
 
@@ -448,6 +449,12 @@ class WebcamCapture:
                     },
                 )
 
+            # Apply mirroring at the source via NumPy/OpenCV flip.
+            # This ensures MediaPipe sees the world correctly and detects
+            # handedness (Left/Right) with high accuracy.
+            if self._cfg.mirror_input:
+                cv2.flip(bgr, 1, dst=bgr)
+
             consecutive_failures = 0
             last_ts_us = now_us
 
@@ -456,7 +463,6 @@ class WebcamCapture:
                 bgr=bgr_uint8,
                 timestamp_us=now_us,
                 frame_index=frame_index,
-                is_mirrored=self._cfg.mirror_input,
             )
             self._push_to_queue(frame)
             frame_index += 1
