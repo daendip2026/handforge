@@ -648,7 +648,7 @@ class TestMetadataPropagation:
 class TestMediaPipeTrackerPerformance:
     """Benchmark tests for critical inference and transformation paths."""
 
-    @pytest.mark.benchmark(group="tracker")
+    @pytest.mark.benchmark(group="tracker-hot-path")
     def test_benchmark_processing_hot_path(
         self,
         benchmark: BenchmarkFixture,
@@ -669,23 +669,24 @@ class TestMediaPipeTrackerPerformance:
             """Yields frames with monotonically increasing timestamps."""
             ts = TEST_TIMESTAMP_US
             while True:
-                # We yield a fresh Frame object but REUSE the heavy numpy array
                 yield Frame(
-                    bgr=dummy_bgr,
-                    timestamp_us=ts,
-                    frame_index=0,
-                    is_mirrored=True,
+                    bgr=dummy_bgr, timestamp_us=ts, frame_index=0, is_mirrored=True
                 )
-                ts += 1000  # 1ms increment
+                ts += 1000
 
         gen = frame_iterator()
 
         with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
-            # We call next(gen) inside the lambda to ensure the tracker sees a NEW
-            # timestamp every time, forcing it to execute the full processing logic.
-            benchmark(lambda: tracker.process(next(gen)))
+            # Using balanced pedantic mode (iterations=40) to filter jitter
+            # while ensuring the test suite remains fast and responsive.
+            benchmark.pedantic(
+                lambda: tracker.process(next(gen)),
+                iterations=40,
+                rounds=30,
+                warmup_rounds=10,
+            )
 
-    @pytest.mark.benchmark(group="tracker")
+    @pytest.mark.benchmark(group="tracker-polling")
     def test_benchmark_polling_efficiency(
         self,
         benchmark: BenchmarkFixture,
@@ -701,5 +702,10 @@ class TestMediaPipeTrackerPerformance:
         with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
             # First call warms up the buffer
             tracker.process(frame)
-            # Benchmark subsequent calls with the SAME frame
-            benchmark(lambda: tracker.process(frame))
+            # Polling is fast, iterations=200 is sufficient for stable averages.
+            benchmark.pedantic(
+                lambda: tracker.process(frame),
+                iterations=200,
+                rounds=30,
+                warmup_rounds=10,
+            )

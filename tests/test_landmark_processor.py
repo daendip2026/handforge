@@ -528,7 +528,7 @@ class TestConsoleSummary:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.benchmark(group="landmark-processor")
+@pytest.mark.benchmark(group="landmark-processor-update")
 def test_benchmark_processor_update(
     benchmark: BenchmarkFixture,
     processor: LandmarkProcessor,
@@ -536,10 +536,17 @@ def test_benchmark_processor_update(
 ) -> None:
     """Benchmark the core LandmarkProcessor.update() latency."""
     result = frame_result_factory()
-    benchmark(processor.update, result)
+    # Micro-task (<2us), using 2,000 iterations for stable averages
+    benchmark.pedantic(
+        processor.update,
+        args=(result,),
+        iterations=2000,
+        rounds=50,
+        warmup_rounds=10,
+    )
 
 
-@pytest.mark.benchmark(group="landmark-processor")
+@pytest.mark.benchmark(group="landmark-processor-summary")
 def test_benchmark_console_summary(
     benchmark: BenchmarkFixture,
     processor: LandmarkProcessor,
@@ -552,4 +559,11 @@ def test_benchmark_console_summary(
     processor.update(frame_result_factory(timestamp_us=next(clock)))
     processed = processor.update(frame_result_factory(timestamp_us=next(clock)))
 
-    benchmark(console_summary, processed)
+    # Formatting (~15us), using 500 iterations for statistical stability
+    benchmark.pedantic(
+        console_summary,
+        args=(processed,),
+        iterations=500,
+        rounds=50,
+        warmup_rounds=10,
+    )

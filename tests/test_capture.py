@@ -64,6 +64,9 @@ def mock_cap() -> MagicMock:
                 elapsed = time.perf_counter() - self.last_read
                 if elapsed < interval:
                     time.sleep(interval - elapsed)
+            else:
+                # Yield to other threads to prevent starvation during unthrottled benchmarks
+                time.sleep(0)
             self.last_read = time.perf_counter()
             return (True, frame)
 
@@ -413,7 +416,7 @@ class TestWebcamCapturePerformance:
     - Latency: The time elapsed from a frame being requested to it being delivered.
     """
 
-    @pytest.mark.benchmark(group="capture")
+    @pytest.mark.benchmark(group="capture-latency-unthrottled")
     def test_benchmark_latency_unthrottled(
         self,
         benchmark: BenchmarkFixture,
@@ -427,11 +430,15 @@ class TestWebcamCapturePerformance:
             # Pre-create iterator once: avoids per-call generator allocation
             # that would inflate measurement with __iter__ re-entry overhead.
             gen = iter(wc)
+            # Use a lambda for stable wrapping and lower iterations to avoid starvation.
             benchmark.pedantic(
-                next, args=(gen,), iterations=1, rounds=100, warmup_rounds=10
+                lambda: next(gen),
+                iterations=50,
+                rounds=50,
+                warmup_rounds=5,
             )
 
-    @pytest.mark.benchmark(group="capture")
+    @pytest.mark.benchmark(group="capture-latency-throttled")
     def test_benchmark_latency_30fps(
         self,
         benchmark: BenchmarkFixture,
@@ -443,11 +450,16 @@ class TestWebcamCapturePerformance:
 
         with WebcamCapture(mock_cfg) as wc:
             gen = iter(wc)
+            # 30fps = 33.3ms interval. 40 rounds take ~1.3 seconds.
             benchmark.pedantic(
-                next, args=(gen,), iterations=1, rounds=50, warmup_rounds=10
+                next,
+                args=(gen,),
+                iterations=1,
+                rounds=40,
+                warmup_rounds=5,
             )
 
-    @pytest.mark.benchmark(group="capture")
+    @pytest.mark.benchmark(group="capture-latency-throttled")
     def test_benchmark_latency_60fps(
         self,
         benchmark: BenchmarkFixture,
@@ -459,11 +471,16 @@ class TestWebcamCapturePerformance:
 
         with WebcamCapture(mock_cfg) as wc:
             gen = iter(wc)
+            # 60fps = 16.6ms interval. 40 rounds take ~0.7 seconds.
             benchmark.pedantic(
-                next, args=(gen,), iterations=1, rounds=50, warmup_rounds=10
+                next,
+                args=(gen,),
+                iterations=1,
+                rounds=40,
+                warmup_rounds=5,
             )
 
-    @pytest.mark.benchmark(group="capture")
+    @pytest.mark.benchmark(group="capture-latency-throttled")
     def test_benchmark_latency_240fps(
         self,
         benchmark: BenchmarkFixture,
@@ -475,6 +492,11 @@ class TestWebcamCapturePerformance:
 
         with WebcamCapture(mock_cfg) as wc:
             gen = iter(wc)
+            # 240fps = 4.16ms interval. 40 rounds take ~0.2 seconds.
             benchmark.pedantic(
-                next, args=(gen,), iterations=1, rounds=100, warmup_rounds=10
+                next,
+                args=(gen,),
+                iterations=1,
+                rounds=40,
+                warmup_rounds=10,
             )
