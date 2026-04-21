@@ -31,6 +31,8 @@ import math
 
 from hand_tracker.logger import get_logger
 from hand_tracker.types import (
+    LANDMARK_COUNT,
+    LANDMARK_NAMES,
     FrameResult,
     ProcessedFrame,
     ProcessedHand,
@@ -179,6 +181,7 @@ class LandmarkProcessor:
         processed_hands = tuple(
             ProcessedHand(
                 landmarks=raw_hand.landmarks,
+                world_landmarks=raw_hand.world_landmarks,
                 handedness=raw_hand.handedness,
                 confidence=raw_hand.confidence,
             )
@@ -246,10 +249,12 @@ def full_landmark_dump(frame: ProcessedFrame) -> str:
                 f"{'wld_x':>8} {'wld_y':>8} {'wld_z':>8}",
             ]
         )
-        for lm in hand.landmarks:
+        for j in range(LANDMARK_COUNT):
+            p = hand.landmarks[j]
+            w = hand.world_landmarks[j]
             lines.append(
-                f"  {lm.index:<4} {lm.name:<14}  "
-                f"{lm.x:7.4f} {lm.y:7.4f} {lm.z:8.4f}    "
-                f"{lm.wx:8.4f} {lm.wy:8.4f} {lm.wz:8.4f}"
+                f"  {j:<4} {LANDMARK_NAMES[j]:<14}  "
+                f"{p[0]:7.4f} {p[1]:7.4f} {p[2]:8.4f}    "
+                f"{w[0]:8.4f} {w[1]:8.4f} {w[2]:8.4f}"
             )
     return "\n".join(lines)

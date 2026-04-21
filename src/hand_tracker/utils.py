@@ -67,16 +67,14 @@ def console_summary(frame: ProcessedFrame) -> str:
             ]
         )
 
-        lm_map = {lm.index: lm for lm in hand.landmarks}
         for idx in _SUMMARY_INDICES:
-            lm = lm_map.get(idx)
-            if not lm:
-                continue
+            p = hand.landmarks[idx]
+            w = hand.world_landmarks[idx]
             name = _SUMMARY_NAMES[idx]
             lines.append(
                 f"  {name}  "
-                f"{lm.x:7.4f} {lm.y:7.4f} {lm.z:8.4f}    "
-                f"{lm.wx:8.4f} {lm.wy:8.4f} {lm.wz:8.4f}"
+                f"{p[0]:7.4f} {p[1]:7.4f} {p[2]:8.4f}    "
+                f"{w[0]:8.4f} {w[1]:8.4f} {w[2]:8.4f}"
             )
 
     lines.append("═" * CONSOLE_WIDTH)

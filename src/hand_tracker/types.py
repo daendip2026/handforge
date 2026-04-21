@@ -10,11 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
-if TYPE_CHECKING:
-    import numpy as np
-    import numpy.typing as npt
+import numpy as np
+import numpy.typing as npt
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,38 +63,25 @@ class HandLandmark(IntEnum):
 
 
 LANDMARK_COUNT: Final[int] = len(HandLandmark)
-
-
-@dataclass(frozen=True, slots=True)
-class LandmarkPoint:
-    """
-    Single landmark in both coordinate spaces.
-
-    position:
-        Normalised image coordinates (x, y, z).
-    world_position:
-        Metric 3D coordinates in metres (wx, wy, wz).
-    """
-
-    index: int
-    name: str
-
-    # Normalised image space
-    x: float
-    y: float
-    z: float
-
-    # World space (metres)
-    wx: float
-    wy: float
-    wz: float
+LANDMARK_NAMES: Final[tuple[str, ...]] = tuple(lm.name for lm in HandLandmark)
 
 
 @dataclass(frozen=True, slots=True)
 class RawHandResult:
-    """MediaPipe-agnostic result for one detected hand."""
+    """
+    MediaPipe-agnostic Raw Detection Result for one hand.
 
-    landmarks: tuple[LandmarkPoint, ...]
+    This represents the 'Sensor/Link Layer' output directly from the tracker.
+    It should be treated as immutable historical evidence of what the model saw.
+
+    landmarks:
+        (21, 3) float32 array of (x, y, z) in normalized [0, 1] space.
+    world_landmarks:
+        (21, 3) float32 array of (x, y, z) in metric metres.
+    """
+
+    landmarks: npt.NDArray[np.float32]
+    world_landmarks: npt.NDArray[np.float32]
     handedness: Handedness
     confidence: float
     timestamp_us: int
@@ -115,9 +101,16 @@ class FrameResult:
 
 @dataclass(frozen=True, slots=True)
 class ProcessedHand:
-    """Processed data for a single hand (filtered/refined)."""
+    """
+    Refined and Filtered data for one hand, ready for application use.
 
-    landmarks: tuple[LandmarkPoint, ...]
+    This represents the 'Application/Network Layer' data.
+    Note: 'landmarks' here may contain smoothed values (EMA, One-Euro) or
+    coordinate-transformed values (e.g. Unity space) that differ from the raw detection.
+    """
+
+    landmarks: npt.NDArray[np.float32]
+    world_landmarks: npt.NDArray[np.float32]
     handedness: Handedness
     confidence: float
 

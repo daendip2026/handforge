@@ -51,8 +51,6 @@ from hand_tracker.types import (
     Frame,
     FrameResult,
     Handedness,
-    HandLandmark,
-    LandmarkPoint,
     RawHandResult,
 )
 from hand_tracker.utils import NS_PER_US, US_PER_MS
@@ -111,12 +109,6 @@ class MPHandLandmarker(Protocol):
     ) -> None: ...
 
     def close(self) -> None: ...
-
-
-# Pre-cached landmark names for hot-path performance.
-_LANDMARK_NAMES: Final[tuple[str, ...]] = tuple(
-    HandLandmark(i).name for i in range(LANDMARK_COUNT)
-)
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +279,7 @@ class MediaPipeTracker:
             # Local attribute caching for hot-path speed
             cfg = self._tracker_cfg
             target_side = cfg.primary_hand
-            names = _LANDMARK_NAMES
+
             h_both = Handedness.BOTH
 
             # Task results lists
@@ -319,18 +311,13 @@ class MediaPipeTracker:
 
             hands_result = tuple(
                 RawHandResult(
-                    landmarks=tuple(
-                        LandmarkPoint(
-                            index=i,
-                            name=names[i],
-                            x=p.x,
-                            y=p.y,
-                            z=p.z,
-                            wx=w.x,
-                            wy=w.y,
-                            wz=w.z,
-                        )
-                        for i, (p, w) in enumerate(zip(mp_lm, mp_wlm, strict=True))
+                    # Fast bulk extraction into NumPy arrays to minimize object allocation
+                    # and GC pressure. Reshape from flattened list is often faster than nested lists.
+                    landmarks=np.array(
+                        [[p.x, p.y, p.z] for p in mp_lm], dtype=np.float32
+                    ),
+                    world_landmarks=np.array(
+                        [[w.x, w.y, w.z] for w in mp_wlm], dtype=np.float32
                     ),
                     handedness=_HANDEDNESS_MAP.get(rm_h[0].category_name, h_both),
                     confidence=float(rm_h[0].score),

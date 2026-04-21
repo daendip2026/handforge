@@ -407,8 +407,9 @@ class TestMediaPipeTrackerEdgeCases:
             result = tracker.process(_make_frame())
 
         hand = result.hands[0]
-        assert hand.landmarks[0].x == 0.0
-        assert hand.landmarks[1].x == 1.0
+        # NumPy indexing: [landmark_index, component_index] where 0=x
+        assert hand.landmarks[0, 0] == 0.0
+        assert hand.landmarks[1, 0] == 1.0
 
 
 class TestMediaPipeTrackerThreadSafety:
@@ -571,13 +572,14 @@ class TestMediaPipeTrackerInferenceQuality:
             result = tracker.process(_make_frame())
 
         hand = result.hands[0]
-        assert len(hand.landmarks) == LANDMARK_COUNT
-        assert hand.landmarks[0].x == 0.1
-        assert hand.landmarks[0].y == 0.2
-        assert hand.landmarks[0].z == 0.3
-        assert hand.landmarks[0].wx == 0.01
-        assert hand.landmarks[0].wy == 0.02
-        assert hand.landmarks[0].wz == 0.03
+        assert hand.landmarks.shape == (LANDMARK_COUNT, 3)
+        assert hand.landmarks[0, 0] == 0.1
+        assert hand.landmarks[0, 1] == 0.2
+        assert hand.landmarks[0, 2] == 0.3
+        assert hand.world_landmarks[0, 0] == 0.01
+        assert hand.world_landmarks[0, 1] == 0.02
+        assert hand.world_landmarks[0, 2] == 0.03
+
         assert hand.confidence == 0.95
         assert hand.handedness == Handedness.RIGHT
 
@@ -608,9 +610,9 @@ class TestMediaPipeTrackerInferenceQuality:
 
         hand = result.hands[0]
         # Spot check index 0
-        assert hand.landmarks[0].wx == TEST_WORLD_X
-        assert hand.landmarks[0].wy == TEST_WORLD_Y
-        assert hand.landmarks[0].wz == TEST_WORLD_Z
+        assert hand.world_landmarks[0, 0] == TEST_WORLD_X
+        assert hand.world_landmarks[0, 1] == TEST_WORLD_Y
+        assert hand.world_landmarks[0, 2] == TEST_WORLD_Z
 
 
 class TestMetadataPropagation:

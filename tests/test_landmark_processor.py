@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pytest_benchmark.fixture import BenchmarkFixture
 
+import numpy as np
+import numpy.typing as npt
 import pytest
 
 from hand_tracker.landmark_processor import (
@@ -18,9 +20,9 @@ from hand_tracker.landmark_processor import (
 )
 from hand_tracker.types import (
     LANDMARK_COUNT,
+    LANDMARK_NAMES,
     FrameResult,
     Handedness,
-    LandmarkPoint,
     ProcessedFrame,
     RawHandResult,
 )
@@ -50,39 +52,24 @@ _DEFAULT_WINDOW_SIZE: int = 30  # Default FPS smoothing window size
 
 
 @pytest.fixture
-def landmark_point_factory() -> Iterator[Callable[[int], LandmarkPoint]]:
-    """Provides a factory for LandmarkPoint objects with default values."""
+def landmarks_factory() -> Iterator[Callable[[], npt.NDArray[np.float32]]]:
+    """Provides a factory for a full set of 21 landmarks as a NumPy array."""
 
-    def _create(index: int = 0) -> LandmarkPoint:
-        return LandmarkPoint(
-            index=index,
-            name=f"LM_{index}",
-            x=index * 0.01,
-            y=index * 0.02,
-            z=0.0,
-            wx=index * 0.001,
-            wy=index * 0.002,
-            wz=0.0,
-        )
-
-    yield _create
-
-
-@pytest.fixture
-def landmarks_factory(
-    landmark_point_factory: Callable[[int], LandmarkPoint],
-) -> Iterator[Callable[[], tuple[LandmarkPoint, ...]]]:
-    """Provides a factory for a full set of 21 landmarks."""
-
-    def _create() -> tuple[LandmarkPoint, ...]:
-        return tuple(landmark_point_factory(i) for i in range(LANDMARK_COUNT))
+    def _create(scale: float = 1.0) -> npt.NDArray[np.float32]:
+        # Create (21, 3) array with some recognizable deterministic values
+        data = np.zeros((LANDMARK_COUNT, 3), dtype=np.float32)
+        for i in range(LANDMARK_COUNT):
+            data[i, 0] = i * 0.01 * scale
+            data[i, 1] = i * 0.02 * scale
+            data[i, 2] = i * 0.03 * scale
+        return data
 
     yield _create
 
 
 @pytest.fixture
 def raw_hand_factory(
-    landmarks_factory: Callable[[], tuple[LandmarkPoint, ...]],
+    landmarks_factory: Callable[..., npt.NDArray[np.float32]],
 ) -> Iterator[Callable[..., RawHandResult]]:
     """Provides a factory for RawHandResult objects."""
 
@@ -93,6 +80,7 @@ def raw_hand_factory(
     ) -> RawHandResult:
         return RawHandResult(
             landmarks=landmarks_factory(),
+            world_landmarks=landmarks_factory(scale=0.1),
             handedness=handedness,
             confidence=confidence,
             timestamp_us=timestamp_us,
@@ -297,15 +285,17 @@ class TestLandmarkProcessor:
         raw_frame = frame_result_factory()
         processed = processor.update(raw_frame)
 
-        assert len(processed.hands[0].landmarks) == LANDMARK_COUNT
-        for original, result in zip(
-            raw_frame.hands[0].landmarks,
+        assert processed.hands[0].landmarks.shape == (LANDMARK_COUNT, 3)
+        np.testing.assert_allclose(
             processed.hands[0].landmarks,
-            strict=True,
-        ):
-            assert result.index == original.index
-            assert result.x == pytest.approx(original.x)
-            assert result.wx == pytest.approx(original.wx)
+            raw_frame.hands[0].landmarks,
+            rtol=1e-5,
+        )
+        np.testing.assert_allclose(
+            processed.hands[0].world_landmarks,
+            raw_frame.hands[0].world_landmarks,
+            rtol=1e-5,
+        )
 
     def test_fps_nan_on_first_frame(
         self,
@@ -460,9 +450,9 @@ class TestConsoleSummary:
                 timestamp_us=next(clock),
                 hands=(
                     RawHandResult(
-                        landmarks=tuple(
-                            LandmarkPoint(i, f"LM_{i}", 0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
-                            for i in range(LANDMARK_COUNT)
+                        landmarks=np.full((LANDMARK_COUNT, 3), 0.5, dtype=np.float32),
+                        world_landmarks=np.full(
+                            (LANDMARK_COUNT, 3), 0.5, dtype=np.float32
                         ),
                         handedness=Handedness.RIGHT,
                         confidence=0.99,
@@ -530,7 +520,7 @@ class TestConsoleSummary:
         """Scenario: In-depth data inspection. Expected: All 21 landmarks serialized."""
         dump = full_landmark_dump(processed_frame)
         for i in range(LANDMARK_COUNT):
-            assert f"LM_{i}" in dump
+            assert LANDMARK_NAMES[i] in dump
 
 
 # ---------------------------------------------------------------------------
