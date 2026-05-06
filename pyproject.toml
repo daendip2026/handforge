@@ -103,3 +103,6 @@ disallow_untyped_calls = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--tb=short -q --cov=src --cov-report=term-missing"
+
+[project.scripts]
+handforge-tracker = "hand_tracker.cli:main"
