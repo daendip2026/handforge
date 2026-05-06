@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 import numpy as np
 import pytest
 
-from hand_tracker.config import MediaPipeConfig, TrackerConfig
+from hand_tracker.config import CameraConfig, MediaPipeConfig, TrackerConfig
 from hand_tracker.mediapipe_tracker import (
     MediaPipeConfigurationError,
     MediaPipeInferenceError,
@@ -117,6 +117,35 @@ def tracker_cfg() -> TrackerConfig:
     return TrackerConfig(primary_hand=Handedness.RIGHT)
 
 
+@pytest.fixture
+def camera_cfg() -> CameraConfig:
+    """Fixture providing a default valid CameraConfig (non-mirrored for pure logic tests)."""
+    return CameraConfig(mirror_input=False)
+
+
+@pytest.fixture
+def create_tracker(
+    mp_cfg: MediaPipeConfig,
+    tracker_cfg: TrackerConfig,
+    camera_cfg: CameraConfig,
+    mock_landmarker_factory: MagicMock,
+) -> Any:
+    """Factory fixture to create MediaPipeTracker instances with less boilerplate."""
+
+    def _create(
+        custom_mp_cfg: MediaPipeConfig | None = None,
+        custom_tracker_cfg: TrackerConfig | None = None,
+    ) -> MediaPipeTracker:
+        return MediaPipeTracker(
+            mp_cfg=custom_mp_cfg or mp_cfg,
+            tracker_cfg=custom_tracker_cfg or tracker_cfg,
+            camera_cfg=camera_cfg,
+            hand_landmarker_factory=mock_landmarker_factory,
+        )
+
+    return _create
+
+
 @pytest.fixture(autouse=True)
 def auto_mock_model(mp_cfg: MediaPipeConfig) -> None:
     """Ensure the mock model file exists for all tests using MediaPipeConfig."""
@@ -197,22 +226,18 @@ def _make_mp_results(
 class TestMediaPipeTrackerLifecycle:
     def test_context_manager_closes_hands(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        mp_cfg: MediaPipeConfig,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Verify that the MediaPipe HandLandmarker is closed on exit."""
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory):
+        with create_tracker():
             pass
 
         mock_detector_instance.close.assert_called_once()
 
-    def test_raises_without_context_manager(
-        self, mp_cfg: MediaPipeConfig, tracker_cfg: TrackerConfig
-    ) -> None:
+    def test_raises_without_context_manager(self, create_tracker: Any) -> None:
         """Verify that process() raises an error if called outside a context manager."""
-        tracker = MediaPipeTracker(mp_cfg, tracker_cfg)
+        tracker = create_tracker()
         with pytest.raises(MediaPipeConfigurationError, match="context manager"):
             tracker.process(_make_frame())
 
@@ -220,9 +245,8 @@ class TestMediaPipeTrackerLifecycle:
 class TestWarmup:
     def test_warmup_frames_return_empty_hands(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Verify that results are empty during the warmup period."""
         warmup_count = 3
@@ -231,7 +255,7 @@ class TestWarmup:
             [("Right", TEST_CONFIDENCE)]
         )
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(custom_mp_cfg=mp_cfg) as tracker:
             for i in range(warmup_count):
                 result = tracker.process(_make_frame(i))
                 assert isinstance(result, FrameResult)
@@ -239,9 +263,8 @@ class TestWarmup:
 
     def test_post_warmup_frame_is_processed(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Verify that the tracker starts processing after warmup completes."""
         warmup_count = 2
@@ -250,7 +273,7 @@ class TestWarmup:
             [("Right", TEST_CONFIDENCE)]
         )
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(custom_mp_cfg=mp_cfg) as tracker:
             for i in range(warmup_count):
                 tracker.process(_make_frame(i))
 
@@ -285,8 +308,8 @@ class TestProcessDetection:
     )
     def test_detection_logic(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
+        create_tracker: Any,
         primary_hand: Handedness,
         max_hands: int,
         detections: list[tuple[str, float]] | None,
@@ -298,7 +321,9 @@ class TestProcessDetection:
         mp_cfg = MediaPipeConfig(max_num_hands=max_hands, warmup_frame_count=0)
         tracker_cfg = TrackerConfig(primary_hand=primary_hand)
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(
+            custom_mp_cfg=mp_cfg, custom_tracker_cfg=tracker_cfg
+        ) as tracker:
             result = tracker.process(_make_frame())
 
         # Assert
@@ -309,8 +334,8 @@ class TestProcessDetection:
 class TestMediaPipeTrackerEdgeCases:
     def test_process_malformed_handedness(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
+        create_tracker: Any,
     ) -> None:
         """Verify that unknown handedness strings from MediaPipe fallback to BOTH."""
         # Setup with an unexpected category name
@@ -318,7 +343,9 @@ class TestMediaPipeTrackerEdgeCases:
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
         tracker_cfg = TrackerConfig(primary_hand=Handedness.BOTH)
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(
+            custom_mp_cfg=mp_cfg, custom_tracker_cfg=tracker_cfg
+        ) as tracker:
             result = tracker.process(_make_frame())
 
         # Verify fallback logic
@@ -326,13 +353,11 @@ class TestMediaPipeTrackerEdgeCases:
 
     def test_process_empty_frame(
         self,
-        mock_landmarker_factory: MagicMock,
-        mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Verify that empty frames return an empty result."""
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(custom_mp_cfg=mp_cfg) as tracker:
             result_none = tracker.process(
                 Frame(bgr=cast(Any, None), timestamp_us=0, frame_index=0)
             )
@@ -340,9 +365,8 @@ class TestMediaPipeTrackerEdgeCases:
 
     def test_malformed_landmark_count(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Verify that MediaPipeInferenceError is raised if landmark count is not 21."""
         # Create a mock with only 5 landmarks
@@ -354,16 +378,15 @@ class TestMediaPipeTrackerEdgeCases:
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
         with (
-            MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker,
+            create_tracker(custom_mp_cfg=mp_cfg) as tracker,
             pytest.raises(MediaPipeInferenceError, match="Expected 21 landmarks"),
         ):
             tracker.process(_make_frame())
 
     def test_raises_on_inconsistent_result_lists(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Verify that MediaPipeInferenceError is raised if result list lengths mismatch."""
         mock_results = _make_mp_results([("Right", 0.9)])
@@ -374,7 +397,7 @@ class TestMediaPipeTrackerEdgeCases:
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
         with (
-            MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker,
+            create_tracker(custom_mp_cfg=mp_cfg) as tracker,
             pytest.raises(
                 MediaPipeInferenceError, match="Inconsistent result list lengths"
             ),
@@ -383,9 +406,8 @@ class TestMediaPipeTrackerEdgeCases:
 
     def test_landmark_boundary_conditions(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Verify landmark mapping at spatial boundaries (0.0, 1.0)."""
         mock_results = _make_mp_results([("Right", 0.9)])
@@ -399,7 +421,7 @@ class TestMediaPipeTrackerEdgeCases:
         mock_detector_instance._test_result = mock_results
 
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(custom_mp_cfg=mp_cfg) as tracker:
             result = tracker.process(_make_frame())
 
         hand = result.hands[0]
@@ -413,9 +435,8 @@ class TestMediaPipeTrackerThreadSafety:
 
     def test_result_immutability(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """
         Verify that produced results are immutable (thread-safe for sharing).
@@ -427,7 +448,7 @@ class TestMediaPipeTrackerThreadSafety:
         mock_detector_instance._test_result = _make_mp_results([("Right", 0.9)])
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(custom_mp_cfg=mp_cfg) as tracker:
             result = tracker.process(_make_frame())
 
         # Ensure hands collection is a tuple (immutable)
@@ -442,12 +463,10 @@ class TestMediaPipeTrackerResourceSafety:
 
     def test_strict_lifecycle_enforcement(
         self,
-        mock_landmarker_factory: MagicMock,
-        mp_cfg: MediaPipeConfig,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Verify that the tracker strictly enforces its lifecycle (Before -> During -> After)."""
-        tracker = MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory)
+        tracker = create_tracker()
         frame = _make_frame()
 
         # 1. State: PRE-INIT (Must raise error)
@@ -465,12 +484,10 @@ class TestMediaPipeTrackerResourceSafety:
 
     def test_double_close_is_safe(
         self,
-        mock_landmarker_factory: MagicMock,
-        mp_cfg: MediaPipeConfig,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Verify that closing the tracker multiple times does not raise errors (Idempotency)."""
-        tracker = MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory)
+        tracker = create_tracker()
         with tracker:
             pass  # First close via __exit__
 
@@ -479,9 +496,7 @@ class TestMediaPipeTrackerResourceSafety:
 
     def test_input_buffer_memory_protection(
         self,
-        mock_landmarker_factory: MagicMock,
-        mp_cfg: MediaPipeConfig,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """
         Verify that the input image buffer is protected via the writeable flag.
@@ -497,10 +512,8 @@ class TestMediaPipeTrackerResourceSafety:
         # We need to spy on the mp.Image constructor to check the data flags
         with (
             patch("mediapipe.Image") as mock_image_class,
-            MediaPipeTracker(
-                MediaPipeConfig(warmup_frame_count=0),
-                tracker_cfg,
-                mock_landmarker_factory,
+            create_tracker(
+                custom_mp_cfg=MediaPipeConfig(warmup_frame_count=0)
             ) as tracker,
         ):
             tracker.process(_make_frame())
@@ -526,9 +539,8 @@ class TestMediaPipeTrackerInferenceQuality:
 
     def test_inference_timing_propagation(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """
         Verify that inference timing is recorded and propagated correctly.
@@ -540,13 +552,13 @@ class TestMediaPipeTrackerInferenceQuality:
         mock_detector_instance._test_result = _make_mp_results([("Right", 0.9)])
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(custom_mp_cfg=mp_cfg) as tracker:
             result = tracker.process(_make_frame())
 
         assert result.hands[0].inference_time_us >= 0
 
     def test_landmark_data_integrity(
-        self, mock_landmarker_factory: MagicMock, mock_detector_instance: MagicMock
+        self, mock_detector_instance: MagicMock, create_tracker: Any
     ) -> None:
         """Verify that landmarks and world landmarks are mapped correctly and accurately."""
         # Setup specific known landmark values
@@ -562,9 +574,7 @@ class TestMediaPipeTrackerInferenceQuality:
         mock_detector_instance._test_result = mock_results
 
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
-        with MediaPipeTracker(
-            mp_cfg, TrackerConfig(), mock_landmarker_factory
-        ) as tracker:
+        with create_tracker(custom_mp_cfg=mp_cfg) as tracker:
             result = tracker.process(_make_frame())
 
         hand = result.hands[0]
@@ -581,9 +591,8 @@ class TestMediaPipeTrackerInferenceQuality:
 
     def test_metric_world_coordinate_mapping(
         self,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """
         Verify Unity-critical metrical world coordinates (wx, wy, wz).
@@ -601,7 +610,7 @@ class TestMediaPipeTrackerInferenceQuality:
 
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(custom_mp_cfg=mp_cfg) as tracker:
             result = tracker.process(_make_frame())
 
         hand = result.hands[0]
@@ -618,9 +627,8 @@ class TestMediaPipeTrackerPerformance:
     def test_benchmark_processing_hot_path(
         self,
         benchmark: BenchmarkFixture,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Benchmark the full mapping path with NEW frames (Zero-Redundancy bypass)."""
         mock_detector_instance._test_result = _make_mp_results([("Right", 0.9)])
@@ -640,7 +648,7 @@ class TestMediaPipeTrackerPerformance:
 
         gen = frame_iterator()
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(custom_mp_cfg=mp_cfg) as tracker:
             # Using balanced pedantic mode (iterations=40) to filter jitter
             # while ensuring the test suite remains fast and responsive.
             benchmark.pedantic(
@@ -654,16 +662,15 @@ class TestMediaPipeTrackerPerformance:
     def test_benchmark_polling_efficiency(
         self,
         benchmark: BenchmarkFixture,
-        mock_landmarker_factory: MagicMock,
         mock_detector_instance: MagicMock,
-        tracker_cfg: TrackerConfig,
+        create_tracker: Any,
     ) -> None:
         """Benchmark polling speed when the same frame is received (Zero-Redundancy efficiency)."""
         mock_detector_instance._test_result = _make_mp_results([("Right", 0.9)])
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
         frame = _make_frame()
 
-        with MediaPipeTracker(mp_cfg, tracker_cfg, mock_landmarker_factory) as tracker:
+        with create_tracker(custom_mp_cfg=mp_cfg) as tracker:
             # First call warms up the buffer
             tracker.process(frame)
             # Polling is fast, iterations=200 is sufficient for stable averages.
