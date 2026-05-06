@@ -13,6 +13,7 @@ Call load_config() once at process startup and pass it through dependency inject
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -26,6 +27,8 @@ from pydantic_settings import (
 )
 
 from hand_tracker.types import Handedness
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -83,12 +86,13 @@ class MediaPipeConfig(HandForgeConfigModel):
     """MediaPipe Hands solution parameters."""
 
     model_path: str = Field(default="models/hand_landmarker.task")
-    max_num_hands: int = Field(default=1, ge=1, le=2)
+    max_num_hands: int = Field(default=2, ge=1, le=2)
     # 0 = lite (faster), 1 = full (world_landmarks available - REQUIRED)
+    # model_complexity 0=lite, 1=full. Completion requires world_landmarks.
     model_complexity: Literal[1] = Field(default=1)
-    min_detection_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
-    min_presence_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
-    min_tracking_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    min_detection_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    min_presence_confidence: float = Field(default=0.3, ge=0.0, le=1.0)
+    min_tracking_confidence: float = Field(default=0.3, ge=0.0, le=1.0)
     warmup_frame_count: int = Field(default=5, ge=0)
 
     @field_validator("model_complexity", mode="before")
@@ -108,7 +112,7 @@ class TrackerConfig(HandForgeConfigModel):
     """Tracker runtime behaviour."""
 
     target_fps: int = Field(default=30, ge=1, le=120)
-    primary_hand: Handedness = Field(default=Handedness.RIGHT)
+    primary_hand: Handedness = Field(default=Handedness.BOTH)
     fps_window_size: int = Field(default=30, ge=2, le=300)
 
 
@@ -252,6 +256,11 @@ def load_config(config_path: str = DEFAULT_CONFIG_FILE) -> AppConfig:
             parsed = yaml.safe_load(f)
             if isinstance(parsed, dict):
                 yaml_data = parsed
+                log.info(f"configuration loaded from {path.absolute()}")
+    else:
+        log.warning(
+            f"configuration file NOT found at {path.absolute()}. Using defaults."
+        )
 
     # Instantiating AppConfig with yaml_data directly as kwargs injects them as
     # init_settings, neatly bypassing any model schema pollution.

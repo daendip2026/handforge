@@ -44,7 +44,7 @@ import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
-from hand_tracker.config import MediaPipeConfig, TrackerConfig
+from hand_tracker.config import CameraConfig, MediaPipeConfig, TrackerConfig
 from hand_tracker.logger import get_logger
 from hand_tracker.types import (
     LANDMARK_COUNT,
@@ -162,6 +162,7 @@ class MediaPipeTracker:
         self,
         mp_cfg: MediaPipeConfig,
         tracker_cfg: TrackerConfig,
+        camera_cfg: CameraConfig,
         hand_landmarker_factory: type[MPHandLandmarker] | None = None,
     ) -> None:
         """
@@ -178,6 +179,7 @@ class MediaPipeTracker:
         """
         self._mp_cfg = mp_cfg
         self._tracker_cfg = tracker_cfg
+        self._camera_cfg = camera_cfg
         self._factory = hand_landmarker_factory
         self._detector: MPHandLandmarker | None = None
         self._warmup_remaining: int = mp_cfg.warmup_frame_count
@@ -196,6 +198,7 @@ class MediaPipeTracker:
         # to strictly prevent massive GC spikes in hot path.
         self._rgb_pool: list[np.ndarray] | None = None
         self._pool_index: int = 0
+        self._last_timestamp_ms: int = -1
 
     # ------------------------------------------------------------------
     # Context manager
@@ -281,6 +284,9 @@ class MediaPipeTracker:
             target_side = cfg.primary_hand
 
             h_both = Handedness.BOTH
+            h_left = Handedness.LEFT
+            h_right = Handedness.RIGHT
+            is_mirrored = self._camera_cfg.mirror_input
 
             # Task results lists
             rm_landmarks = results.hand_landmarks
@@ -301,35 +307,54 @@ class MediaPipeTracker:
                 raise MediaPipeInferenceError(
                     f"Inconsistent result list lengths: {len(rm_landmarks)}, {len(rm_world)}, {len(rm_hands)}"
                 )
-
-            # Validation: Ensure all detected hands have the correct landmark count
+            # 1. Validation: Ensure all detected hands have the correct landmark count
             for hand_lms in rm_landmarks:
                 if len(hand_lms) != LANDMARK_COUNT:
                     raise MediaPipeInferenceError(
                         f"Expected {LANDMARK_COUNT} landmarks, but got {len(hand_lms)}."
                     )
 
-            hands_result = tuple(
-                RawHandResult(
-                    # Fast bulk extraction into NumPy arrays to minimize object allocation
-                    # and GC pressure. Reshape from flattened list is often faster than nested lists.
-                    landmarks=np.array(
-                        [[p.x, p.y, p.z] for p in mp_lm], dtype=np.float32
-                    ),
-                    world_landmarks=np.array(
-                        [[w.x, w.y, w.z] for w in mp_wlm], dtype=np.float32
-                    ),
-                    handedness=_HANDEDNESS_MAP.get(rm_h[0].category_name, h_both),
-                    confidence=float(rm_h[0].score),
-                    timestamp_us=ts_us,
-                    inference_time_us=inf_time,
-                )
-                for mp_lm, mp_wlm, rm_h in zip(
-                    rm_landmarks, rm_world, rm_hands, strict=True
-                )
-                if target_side == h_both
-                or _HANDEDNESS_MAP.get(rm_h[0].category_name, h_both) == target_side
-            )
+            # Combined collection and filtering logic
+            hands_list = []
+            for mp_lm, mp_wlm, rm_h in zip(
+                rm_landmarks, rm_world, rm_hands, strict=True
+            ):
+                # 1. Handedness Swap: Reverse labels if the image is mirrored
+                raw_side = _HANDEDNESS_MAP.get(rm_h[0].category_name, h_both)
+                final_side = raw_side
+                if is_mirrored:
+                    if raw_side == h_left:
+                        final_side = h_right
+                    elif raw_side == h_right:
+                        final_side = h_left
+
+                # 2. Filtering: Only keep if it matches target_side (BOTH always passes)
+                if target_side == h_both or final_side == target_side:
+                    # Zero-allocation parsing: pre-allocate numpy array and fill directly
+                    # to avoid creating 21 intermediate Python lists per hand.
+                    lms_arr = np.empty((LANDMARK_COUNT, 3), dtype=np.float32)
+                    for i, p in enumerate(mp_lm):
+                        lms_arr[i, 0] = p.x
+                        lms_arr[i, 1] = p.y
+                        lms_arr[i, 2] = p.z
+
+                    world_arr = np.empty((LANDMARK_COUNT, 3), dtype=np.float32)
+                    for i, w in enumerate(mp_wlm):
+                        world_arr[i, 0] = w.x
+                        world_arr[i, 1] = w.y
+                        world_arr[i, 2] = w.z
+
+                    hands_list.append(
+                        RawHandResult(
+                            landmarks=lms_arr,
+                            world_landmarks=world_arr,
+                            handedness=final_side,
+                            confidence=float(rm_h[0].score),
+                            timestamp_us=ts_us,
+                            inference_time_us=inf_time,
+                        )
+                    )
+            hands_result = tuple(hands_list)
 
         # Atomic update of the latest hands data
         with self._hands_lock:
@@ -386,7 +411,12 @@ class MediaPipeTracker:
             dst_rgb.flags.writeable = False
 
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=dst_rgb)
+
+            # Ensure strictly monotonic timestamps for MediaPipe (Required for detect_async)
             ts_ms = int(frame.timestamp_us / US_PER_MS)
+            if ts_ms <= self._last_timestamp_ms:
+                ts_ms = self._last_timestamp_ms + 1
+            self._last_timestamp_ms = ts_ms
 
             self._last_detected_at_ns = time.perf_counter_ns()
             self._detector.detect_async(mp_image, ts_ms)
