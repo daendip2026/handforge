@@ -25,6 +25,12 @@ Real-time, extreme low-latency hand pose tracking pipeline using MediaPipe and O
    pre-commit install
    ```
 
+4. **Download the MediaPipe Model:**
+   Before running the tracker, you must download the HandLandmarker model file:
+   ```bash
+   python scripts/download_models.py
+   ```
+
 ## Usage
 
 The tracking pipeline can be executed via the command line interface. It is driven by `config.yaml`.
