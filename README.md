@@ -1,24 +1,9 @@
 # HandForge-Python
 
-Real-time hand pose tracking pipeline: **MediaPipe** → **Protobuf/WebSocket** → **Unity VRM**.
+Real-time, extreme low-latency hand pose tracking pipeline using MediaPipe and OpenCV.
+*(Currently: Core Engine Implementation)*
 
-This repository contains the Python-based hand tracking engine designed to process camera input and stream optimized pose data to a Unity-based VRM avatar.
-
-## Tech Stack
-
-- **Inference:** MediaPipe, OpenCV, NumPy
-- **Communication:** Python-OSC, WebSockets, Protobuf
-- **Configuration:** Pydantic (Settings), PyYAML
-- **Tooling:** Ruff (Linting/Formatting), Mypy (Type Checking), Pytest
-
----
-
-## Getting Started
-
-### Prerequisites
-- **Python 3.11** or higher.
-
-### Installation
+## Installation
 
 1. **Clone the repository:**
    ```bash
@@ -28,40 +13,55 @@ This repository contains the Python-based hand tracking engine designed to proce
 
 2. **Set up a virtual environment:**
    ```bash
-   # Windows (using Python Launcher)
+   # Windows
    py -3.11 -m venv .venv
    .venv\Scripts\activate
-
-   # macOS/Linux
-   python3 -m venv .venv
-   source .venv/bin/activate
    ```
 
 3. **Install dependencies:**
    Install the package in editable mode with development tools:
    ```bash
    pip install -e ".[dev]"
-   ```
-
-4. **Initialize Git hooks:**
-   Set up `pre-commit` to ensure code quality on every commit:
-   ```bash
    pre-commit install
    ```
+
+## Usage
+
+The tracking pipeline can be executed via the command line interface. It is driven by `config.yaml`.
+
+### 1. Run via Developer Script (Recommended for Dev)
+Runs the tracker directly from the source tree.
+```bash
+python scripts/run_tracker.py
+```
+
+### 2. Run as a Module
+```bash
+python -m hand_tracker
+```
+
+### CLI Options
+You can control the behavior of the tracker using the following flags:
+
+- `--view` : Enable real-time OpenCV debug visualization (shows the camera feed and landmarks).
+- `--full-dump` : Print the coordinates of all 21 landmarks per frame to the console.
+- `--log-level [DEBUG|INFO|WARNING|ERROR]` : Override the log level specified in `config.yaml`.
+- `--config PATH` : Specify a custom config file path (default: `config.yaml`).
+
+**Example:**
+Run the tracker with the debug viewer enabled and detailed logging:
+```bash
+python scripts/run_tracker.py --view --log-level DEBUG
+```
 
 ---
 
 ## Development Workflow
 
-To maintain high code quality, we enforce strict linting and type checking.
-
 ### Linting & Formatting
 We use [Ruff](https://github.com/astral-sh/ruff) for extremely fast linting and code formatting.
 ```bash
-# Check for issues
 ruff check .
-
-# Format code
 ruff format .
 ```
 
