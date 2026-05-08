@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+*.spec
+
+# Virtual environment
+.venv/
+venv/
+env/
+.python-version
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# HandForge runtime artifacts
+logs/*
+!logs/.gitkeep
+*.log
+/models/
+*.task
+
+# Environment
+.env
+.env.local
+.env.dev
+.env.test
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swo
+*.user
+*.sublime-project
+*.sublime-workspace

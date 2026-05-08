@@ -1,0 +1,108 @@
+[build-system]
+requires = ["setuptools>=69.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "handforge-python"
+version = "0.1.0"
+description = "Real-time hand pose tracking pipeline: MediaPipe → Protobuf/WebSocket → Unity VRM"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    # Tracking
+    "mediapipe>=0.10.30",
+    "opencv-python>=4.9.0",
+    "numpy>=1.26.0",
+    # Config
+    "pyyaml>=6.0",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "python-dotenv>=1.0",
+    # Observability
+    "rich>=13.7",
+    # Real-time Pipeline
+    "websockets>=14.0",
+    "protobuf>=5.0",
+    "python-osc>=1.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-benchmark>=4.0",
+    "pytest-cov>=4.1",
+    "mypy>=1.8",
+    "ruff>=0.3",
+    "types-PyYAML>=6.0",
+    "pre-commit>=3.6",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---------------------------------------------------------------------------
+# Ruff — linter + formatter
+# ANN rules intentionally excluded: mypy strict is the sole annotation enforcer
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",  # line length — handled by formatter
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hand_tracker"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# Mypy — strict, sole annotation enforcer
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+warn_unused_configs = false
+show_error_codes = true
+mypy_path = "src"
+
+# mediapipe ships no stubs; silence missing imports
+[[tool.mypy.overrides]]
+module = ["mediapipe.*", "cv2.*", "pytest.*", "rich.*", "numpy.*", "pytest_benchmark.*"]
+ignore_missing_imports = true
+
+# Silence unused ignore warnings in tests to support platform-specific stubs
+[[tool.mypy.overrides]]
+module = "tests.*"
+warn_unused_ignores = false
+disallow_untyped_decorators = false
+disallow_untyped_calls = false
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short -q --cov=src --cov-report=term-missing"
+
+[project.scripts]
+handforge-tracker = "hand_tracker.cli:main"
