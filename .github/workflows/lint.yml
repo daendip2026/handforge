@@ -11,6 +11,9 @@ jobs:
     name: lint-and-typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ./tracker
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]

@@ -24,6 +24,7 @@ htmlcov/
 .tox/
 .nox/
 .hypothesis/
+.benchmarks/
 
 # Type checking
 .mypy_cache/
@@ -37,7 +38,7 @@ dmypy.json
 logs/*
 !logs/.gitkeep
 *.log
-/models/
+models/
 *.task
 
 # Environment
