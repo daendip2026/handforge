@@ -4,7 +4,7 @@
 * Deciders: daendip2026
 * Consulted: Claude Opus 4.7 (structure review)
 * Created: 2026-05-22
-* Last Modified: 2026-05-26
+* Last Modified: 2026-05-27
 
 ## Context and Problem Statement
 
@@ -16,7 +16,7 @@ This ADR is **post-hoc documentation**. The tracker (Python, MediaPipe Tasks API
 - **Two coordinate semantics.** The data carries two distinct, well-defined coordinate frames:
   - *image-space*: normalized `[0,1]` for (x, y); z is wrist-relative depth.
   - *metric*: hand-centric, origin at the wrist, in metres. This is **not** an absolute world coordinate.
-- **Handedness.** Each detected hand is classified by a `Handedness` enum: `Left`, `Right`, or `Both`. The third value is an explicit fallback used when the side cannot be determined from the model output. The label's ground-truth meaning depends on the tracker's selfie-mode handling (`mirror_input` configuration) and MediaPipe's handedness convention.
+- **Handedness.** Each detected hand is classified by a `Handedness` enum. On the wire, values are `Left`, `Right`, or `Unknown` — the last is an explicit fallback used when the side cannot be determined from the model output. The label's ground-truth meaning depends on the tracker's selfie-mode handling (`mirror_input` configuration) and MediaPipe's handedness convention.
 - **Time.** Time is represented as a `uint64` microsecond value. Which messages carry a timestamp is a field-layout matter, out of scope here.
 
 ### Hard constraints

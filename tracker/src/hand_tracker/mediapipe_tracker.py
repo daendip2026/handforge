@@ -61,7 +61,6 @@ log = get_logger(__name__)
 _HANDEDNESS_MAP: Final[dict[str, Handedness]] = {
     "Right": Handedness.RIGHT,
     "Left": Handedness.LEFT,
-    "Both": Handedness.BOTH,
 }
 
 
@@ -286,6 +285,7 @@ class MediaPipeTracker:
             h_both = Handedness.BOTH
             h_left = Handedness.LEFT
             h_right = Handedness.RIGHT
+            h_unknown = Handedness.UNKNOWN
             is_mirrored = self._camera_cfg.mirror_input
 
             # Task results lists
@@ -320,7 +320,7 @@ class MediaPipeTracker:
                 rm_landmarks, rm_world, rm_hands, strict=True
             ):
                 # 1. Handedness Swap: Reverse labels if the image is mirrored
-                raw_side = _HANDEDNESS_MAP.get(rm_h[0].category_name, h_both)
+                raw_side = _HANDEDNESS_MAP.get(rm_h[0].category_name, h_unknown)
                 final_side = raw_side
                 if is_mirrored:
                     if raw_side == h_left:

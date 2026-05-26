@@ -336,7 +336,7 @@ class TestMediaPipeTrackerEdgeCases:
         mock_detector_instance: MagicMock,
         create_tracker: Any,
     ) -> None:
-        """Verify that unknown handedness strings from MediaPipe fallback to BOTH."""
+        """Verify that unknown handedness strings from MediaPipe fall back to UNKNOWN."""
         # Setup with an unexpected category name
         mock_detector_instance._test_result = _make_mp_results([("Alien_Hand", 0.9)])
         mp_cfg = MediaPipeConfig(warmup_frame_count=0)
@@ -348,7 +348,7 @@ class TestMediaPipeTrackerEdgeCases:
             result = tracker.process(_make_frame())
 
         # Verify fallback logic
-        assert result.hands[0].handedness == Handedness.BOTH
+        assert result.hands[0].handedness == Handedness.UNKNOWN
 
     def test_process_empty_frame(
         self,

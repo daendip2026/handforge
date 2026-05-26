@@ -28,11 +28,20 @@ class Frame:
 
 
 class Handedness(StrEnum):
-    """Enumeration for hand side classification."""
+    """
+    Hand side enumeration covering two distinct usages:
+
+    - ``LEFT`` / ``RIGHT``: classification output and filter selectors.
+    - ``BOTH``: filter intent only ("track both sides"); never emitted as a
+      per-hand result.
+    - ``UNKNOWN``: per-hand result fallback when the side cannot be
+      determined from the model output; never used as a filter intent.
+    """
 
     LEFT = "Left"
     RIGHT = "Right"
     BOTH = "Both"
+    UNKNOWN = "Unknown"
 
 
 class HandLandmark(IntEnum):
