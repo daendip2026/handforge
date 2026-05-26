@@ -199,12 +199,6 @@ class TestAppConfig:
         cfg = AppConfig()
         assert cfg.camera.index == 2
 
-    def test_model_complexity_0_rejected(self) -> None:
-        """model_complexity=0 must fail AppConfig literal validation."""
-        os.environ["HANDFORGE__MEDIAPIPE__MODEL_COMPLEXITY"] = "0"
-        with pytest.raises(ValidationError, match="Input should be 1"):
-            AppConfig()
-
     def test_extra_fields_forbidden(self) -> None:
         with pytest.raises(ValidationError):
             AppConfig(unknown_field="value")  # type: ignore[call-arg]

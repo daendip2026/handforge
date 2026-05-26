@@ -28,7 +28,7 @@ Thread Safety & Concurrency:
 
 Hardware & Performance:
     - CPU Execution: MediaPipe Python runs on CPU (no DirectML/OpenCL support).
-    - model_complexity=1: Required for world_landmarks.
+    - Full HandLandmarker model (hand_landmarker.task) is required for world_landmarks.
 """
 
 from __future__ import annotations

@@ -104,7 +104,6 @@ def mp_cfg() -> MediaPipeConfig:
     """Fixture providing a default valid MediaPipeConfig."""
     return MediaPipeConfig(
         max_num_hands=1,
-        model_complexity=1,
         min_detection_confidence=0.7,
         min_tracking_confidence=0.5,
         warmup_frame_count=5,

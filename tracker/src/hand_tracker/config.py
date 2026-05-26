@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -85,27 +85,14 @@ class CameraConfig(HandForgeConfigModel):
 class MediaPipeConfig(HandForgeConfigModel):
     """MediaPipe Hands solution parameters."""
 
+    # Must be the full HandLandmarker model (hand_landmarker.task); the lite
+    # variant does not produce world_landmarks, which the downstream pipeline requires.
     model_path: str = Field(default="models/hand_landmarker.task")
     max_num_hands: int = Field(default=2, ge=1, le=2)
-    # 0 = lite (faster), 1 = full (world_landmarks available - REQUIRED)
-    # model_complexity 0=lite, 1=full. Completion requires world_landmarks.
-    model_complexity: Literal[1] = Field(default=1)
     min_detection_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     min_presence_confidence: float = Field(default=0.3, ge=0.0, le=1.0)
     min_tracking_confidence: float = Field(default=0.3, ge=0.0, le=1.0)
     warmup_frame_count: int = Field(default=5, ge=0)
-
-    @field_validator("model_complexity", mode="before")
-    @classmethod
-    def coerce_model_complexity(cls, v: Any) -> int:
-        """Accept int-like values from various sources."""
-        try:
-            coerced = int(v)
-            if coerced not in (0, 1):
-                raise ValueError
-            return coerced
-        except (ValueError, TypeError):
-            raise ValueError("model_complexity must be 0 or 1") from None
 
 
 class TrackerConfig(HandForgeConfigModel):
@@ -178,18 +165,8 @@ class AppConfig(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @model_validator(mode="after")
-    def validate_world_landmarks_requirement(self) -> AppConfig:
-        """
-        world_landmarks are only available when model_complexity == 1.
-        Completion criterion requires world_position extraction,
-        so model_complexity=0 is a hard error.
-        """
-        if self.mediapipe.model_complexity != 1:
-            raise ValueError(
-                "model_complexity must be 1 to enable world_landmarks. "
-                "world_position extraction is required."
-            )
-
+    def validate_primary_hand_and_max_num_hands(self) -> AppConfig:
+        """primary_hand='Both' requires max_num_hands >= 2."""
         if (
             self.tracker.primary_hand == Handedness.BOTH
             and self.mediapipe.max_num_hands < 2
