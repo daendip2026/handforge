@@ -95,7 +95,7 @@ def mock_landmarker_factory(mock_detector_instance: MagicMock) -> MagicMock:
         mock_detector_instance.detect_async.side_effect = _detect_async
         return mock_detector_instance
 
-    mock_factory.create_from_options.side_effect = _create_from_options
+    mock_factory.side_effect = _create_from_options
     return mock_factory
 
 

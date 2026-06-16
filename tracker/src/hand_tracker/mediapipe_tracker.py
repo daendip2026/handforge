@@ -13,9 +13,9 @@ Key Responsibilities:
 
 Design Decisions:
     - Structural Typing (Protocols): MediaPipe objects are typed via Protocols
-      (MPResults, MPHandsSolution, etc.) instead of 'Any'. This ensures 100%
-      type safety and enables robust Dependency Injection without requiring
-      the heavy MediaPipe library during unit tests.
+      (MPLandmark, MPCategory, MPHandLandmarkerResult, MPHandLandmarker) instead
+      of 'Any'. This ensures 100% type safety and enables Dependency Injection
+      so unit tests don't need to instantiate the real HandLandmarker.
     - Result Collection: process() always returns a FrameResult. Empty detections
       are represented as an empty 'hands' tuple rather than None, making the
       collection handling consistent for the caller.
@@ -35,8 +35,9 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Final, Protocol, runtime_checkable
+from typing import Final, Protocol
 
 import cv2
 import mediapipe as mp
@@ -69,7 +70,6 @@ _HANDEDNESS_MAP: Final[dict[str, Handedness]] = {
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
 class MPLandmark(Protocol):
     """Contract for a single MediaPipe landmark (Normalized or World)."""
 
@@ -78,7 +78,6 @@ class MPLandmark(Protocol):
     z: float
 
 
-@runtime_checkable
 class MPCategory(Protocol):
     """Contract for a MediaPipe classification category."""
 
@@ -88,7 +87,6 @@ class MPCategory(Protocol):
     display_name: str
 
 
-@runtime_checkable
 class MPHandLandmarkerResult(Protocol):
     """Contract for MediaPipe HandLandmarker inference results."""
 
@@ -97,7 +95,6 @@ class MPHandLandmarkerResult(Protocol):
     handedness: list[list[MPCategory]]
 
 
-@runtime_checkable
 class MPHandLandmarker(Protocol):
     """Contract for a MediaPipe HandLandmarker instance."""
 
@@ -162,7 +159,10 @@ class MediaPipeTracker:
         mp_cfg: MediaPipeConfig,
         tracker_cfg: TrackerConfig,
         camera_cfg: CameraConfig,
-        hand_landmarker_factory: type[MPHandLandmarker] | None = None,
+        hand_landmarker_factory: Callable[
+            [vision.HandLandmarkerOptions], MPHandLandmarker
+        ]
+        | None = None,
     ) -> None:
         """
         Initialise the tracker.
@@ -173,7 +173,7 @@ class MediaPipeTracker:
             Inference performance and model settings.
         tracker_cfg: TrackerConfig
             Application-level tracking and filtering settings.
-        hand_landmarker_factory: type[MPHandLandmarker], optional
+        hand_landmarker_factory: Callable[[HandLandmarkerOptions], MPHandLandmarker], optional
             Alternative factory for HandLandmarker (for testing).
         """
         self._mp_cfg = mp_cfg
@@ -225,8 +225,7 @@ class MediaPipeTracker:
         )
 
         if self._factory:
-            # Type ignore because the factory is a Protocol mock in tests
-            self._detector = self._factory.create_from_options(options)  # type: ignore
+            self._detector = self._factory(options)
         else:
             self._detector = vision.HandLandmarker.create_from_options(options)
 
