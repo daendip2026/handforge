@@ -2,13 +2,13 @@
 
 * Status: accepted
 * Deciders: daendip2026
-* Consulted: Claude Opus 4.7 (structure review)
+* Consulted: Claude Opus 4.8 (structure review)
 * Created: 2026-05-26
-* Last Modified: 2026-05-28
+* Last Modified: 2026-06-16
 
 ## Context and Problem Statement
 
-This ADR is **post-hoc documentation**. The tracker is already implemented; this record captures the architectural framework on which the subsequent tracker ADRs build.
+This ADR is **post-hoc documentation**. The tracker is already implemented; this record captures the architectural framework of the tracker pipeline.
 
 The tracker is the producer side of the wire schema defined in [system/ADR-0003](../system/0003-hand-data-structure.md). It must consume webcam frames and produce hand landmarks at frame rate while staying within the constraints inherited from [system/ADR-0001](../system/0001-architecture.md):
 
@@ -63,9 +63,9 @@ All threads share memory in one process; no IPC, no serialization between stages
 
 ### Cross-Cutting Patterns
 
-* **Drop-oldest backpressure on in-process queues.** Both the capture-to-main frame queue and the logging-record queue apply the same policy: if a downstream consumer is slow, drop the oldest item rather than block or grow unbounded. Capture-specific application is documented in [ADR-0002](0002-async-capture-single-slot-buffer.md); logging-specific application is in [ADR-0005](0005-asynchronous-json-logging.md).
+* **Drop-oldest backpressure on in-process queues.** Both the capture-to-main frame queue and the logging-record queue apply the same policy: if a downstream consumer is slow, drop the oldest item rather than block or grow unbounded. Applied at `WebcamCapture._push_to_queue` (`capture.py`) and `ZeroLatencyQueueHandler.enqueue` (`logger.py`).
 * **Immutable hand-off.** All inter-stage data types (`Frame`, `RawHandResult`, `FrameResult`, `ProcessedHand`, `ProcessedFrame`) are `frozen` dataclasses with `tuple` collections (not lists). A producer cannot mutate data after handing it off, eliminating one whole class of cross-thread bugs.
-* **Zero-allocation hot path.** The inference and processing stages reuse pre-allocated NumPy arrays rather than allocating per frame. Documented in [ADR-0003](0003-zero-allocation-memory-pooling.md).
+* **Pooled RGB conversion buffer.** The dominant per-frame allocation (BGR→RGB conversion) is removed via `MediaPipeTracker._rgb_pool` (`mediapipe_tracker.py`): a cyclic 5-slot pool written in place via `cv2.cvtColor(..., dst=slot)`. Smaller per-hand `(LANDMARK_COUNT, 3) float32` arrays are still allocated per detected hand; accepted as residual.
 * **Context-managed lifecycle.** Resource-owning stages (`WebcamCapture`, `MediaPipeTracker`, `AsyncLoggerLifecycle`) are context managers; resource release is deterministic on exit, regardless of exception path.
 * **High-resolution monotonic timing.** A single `_TimeAnchor` (wall-clock anchored to `perf_counter`) is captured once at capture open; all subsequent per-frame timestamps are derived from `perf_counter` deltas added to the wall-clock anchor. This sidesteps platform-specific `time.time()` granularity quirks (e.g. ~15ms on legacy Windows) while keeping a meaningful absolute reference.
 
@@ -80,7 +80,7 @@ All threads share memory in one process; no IPC, no serialization between stages
 ### Validation Targets
 
 * End-to-end per-frame latency target: `< 50ms` (the `LATENCY_WARN_MS` threshold in `cli.py`; warnings are emitted past this point).
-* Zero per-frame heap allocation on the inference and processing hot path — verified separately by the patterns in [ADR-0003](0003-zero-allocation-memory-pooling.md).
+* Dominant per-frame allocation (BGR→RGB conversion) eliminated via pooling on the hot path — currently design intent; see [`tracker/PERFORMANCE.md`](../../../tracker/PERFORMANCE.md) §5 for the measurement gap.
 * FPS sustained at or above `camera.target_fps` — the CLI surfaces actual vs target FPS on exit.
 
 Benchmark measurements supporting these targets, the measurement methodology, and explicit coverage gaps (MediaPipe inference latency, hot-path heap allocation) are recorded in [`tracker/PERFORMANCE.md`](../../../tracker/PERFORMANCE.md).
