@@ -596,9 +596,10 @@ class TestMediaPipeTrackerInferenceQuality:
         """
         Verify Unity-critical metrical world coordinates (wx, wy, wz).
 
-        Engineering Risk: Unity VRM/IK solvers require physical meter coordinates
-        relative to the wrist. If the mapping from multi_hand_world_landmarks
-        is incorrect, the 3D hand poses will be distorted or scaled incorrectly.
+        Engineering Risk: Unity VRM/IK solvers require physical meter coordinates.
+        If the mapping from multi_hand_world_landmarks (MediaPipe-defined origin
+        at the hand's approximate geometric center) is incorrect, the 3D hand
+        poses will be distorted or scaled incorrectly.
         """
         mock_lm = cast(MagicMock, create_autospec(MPLandmark, instance=True))
         mock_lm.x, mock_lm.y, mock_lm.z = TEST_WORLD_X, TEST_WORLD_Y, TEST_WORLD_Z

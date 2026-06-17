@@ -9,7 +9,7 @@ Key Responsibilities:
     - Data Decoupling: Maps raw proto-wrappers to FrameResult/RawHandResult.
     - Dual Coordinate Spaces:
         - position: Normalised image coords (x,y in [0,1], z=depth).
-        - world_position: Metric 3D coords in metres (wrist-relative).
+        - world_position: Metric 3D coords in metres (hand-center relative).
 
 Design Decisions:
     - Structural Typing (Protocols): MediaPipe objects are typed via Protocols
