@@ -80,10 +80,10 @@ All threads share memory in one process; no IPC, no serialization between stages
 ### Validation Targets
 
 * End-to-end per-frame latency target: `< 50ms` (the `LATENCY_WARN_MS` threshold in `cli.py`; warnings are emitted past this point).
-* Dominant per-frame allocation (BGR→RGB conversion) eliminated via pooling on the hot path — currently design intent; see [`tracker/PERFORMANCE.md`](../../../tracker/PERFORMANCE.md) §5 for the measurement gap.
+* Dominant per-frame allocation (BGR→RGB conversion) eliminated via pooling on the hot path — currently design intent.
 * FPS sustained at or above `camera.target_fps` — the CLI surfaces actual vs target FPS on exit.
 
-Benchmark measurements supporting these targets, the measurement methodology, and explicit coverage gaps (MediaPipe inference latency, hot-path heap allocation) are recorded in [`tracker/PERFORMANCE.md`](../../../tracker/PERFORMANCE.md).
+Benchmark measurements supporting these targets and the measurement methodology are recorded in [`tracker/PERFORMANCE.md`](../../../tracker/PERFORMANCE.md).
 
 ### Re-review Conditions
 

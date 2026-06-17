@@ -33,7 +33,7 @@ The codec the camera streams in is identified by a **FOURCC** (Four Character Co
 - **`YUYV`** — raw YUV 4:2:2, uncompressed. At high resolution or high FPS, USB bandwidth is exhausted and the driver silently caps FPS. Symptoms: requested 60 FPS, actual FPS is 5–15, no error logged. See the design comment in `_open_device` (`capture.py`) for the rationale.
 
 ### Other codecs (e.g., `H264`)
-- Not tested in this project. Driver / hardware support varies (some webcams have hardware H.264 encoders, others do not). If you want to use one, measure first — see [`PERFORMANCE.md §6`](PERFORMANCE.md#6-how-to-reproduce) for the runtime stats command.
+- Not tested in this project. Driver / hardware support varies (some webcams have hardware H.264 encoders, others do not). If you want to use one, measure first — see [`PERFORMANCE.md`](PERFORMANCE.md) for the runtime stats command.
 
 ### Caveats
 - The OpenCV official documentation does not explicitly describe the FOURCC-first ordering or the USB-bandwidth silent-fallback behaviour. The rationale recorded here is taken from the design comment inside `_open_device` (`capture.py`).

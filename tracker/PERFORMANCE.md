@@ -1,7 +1,7 @@
 # HandForge Tracker — Performance Measurements
 
-* Last Modified: 2026-05-27
-* Last Measurement Run: 2026-05-27
+* Last Modified: 2026-06-17
+* Last Measurement Run: 2026-05-27 (§4 benchmarks)
 
 ## §1 Purpose & Scope
 
@@ -11,13 +11,12 @@ This document is the *performance evidence record* for the HandForge tracker. It
 - Performance KPIs (target values + verification source).
 - Measurement methodology (hardware, tool settings, mock policy, run date).
 - Measured benchmark results (current values from the pytest-benchmark suite).
-- Coverage gaps (explicitly: things this document does *not* measure).
 - Commands to reproduce measurements locally.
 
 **Out of scope**
 - System and camera tuning guidance → see [`TUNING.md`](TUNING.md).
 - Architectural optimization rationale → see [tracker ADRs](../docs/adr/tracker/README.md).
-- Actual MediaPipe inference latency → not measured by any benchmark here; see §5.
+- MediaPipe inference latency → not captured here. The §4 benchmarks mock the detector, and the current runtime instrumentation does not measure inference latency reliably (single mutable submission timestamp, plus per-frame fan-out of one cached value); reliable measurement is tracked as project work.
 
 ## §2 Performance Targets (KPIs)
 
@@ -26,8 +25,6 @@ This document is the *performance evidence record* for the HandForge tracker. It
 | Pipeline frame rate | ≥ 30 FPS (sustained) | Runtime `effective_fps` reported by `_PipelineStats` in `cli.py` |
 | End-to-end latency (per-frame, mean) | ≤ 50 ms | `LATENCY_WARN_MS` constant in `cli.py`; runtime mean reported on exit by `_print_exit_summary` in `cli.py` |
 | Detection rate | report-only (no fixed target) | Runtime `detection_rate_pct` from `_PipelineStats` in `cli.py` |
-
-*Hot-path heap allocation* is a separate design target inherited from [tracker/ADR-0003](../docs/adr/tracker/0003-zero-allocation-memory-pooling.md); it has no current measurement mechanism, see §5.
 
 Each target is traceable to either a code constant or a runtime measurement mechanism.
 
@@ -45,11 +42,9 @@ Each target is traceable to either a code constant or a runtime measurement mech
 - `landmark-processor-*`: real `LandmarkProcessor.update()` / `console_summary()` on a synthetic `FrameResult`. MediaPipe is not involved.
 - `capture-*`: real `WebcamCapture` queue / synchronisation logic with `cv2.VideoCapture` patched out. Hardware camera is not involved.
 
-For the *date* of the §4 measurement values, see the `Last Measurement Run` field at the top of this document.
-
 ## §4 Measured Benchmark Results
 
-Values below are from the `pytest-benchmark` run on the reference hardware (§3), on the date noted there. Re-running on different hardware will produce different values; the *methodology* is the stable contract, not the specific numbers.
+Values below are from the `pytest-benchmark` run on the reference hardware (§3). Re-running on different hardware will produce different values; the *methodology* is the stable contract, not the specific numbers.
 
 ### tracker (groups: `tracker-hot-path`, `tracker-polling`)
 
@@ -76,30 +71,7 @@ Values below are from the `pytest-benchmark` run on the reference hardware (§3)
 
 **Reading note**: the `latency_30fps` / `latency_60fps` numbers approximate the simulated inter-frame interval *by design*; they validate that the throttling mechanism produces the expected delay, not that the code itself is that slow. The `unthrottled` and `240fps` rows reflect actual code-path latency.
 
-## §5 Coverage Gaps
-
-The benchmarks in §4 do not cover every dimension this tracker is designed for. The gaps below are recorded explicitly so readers do not assume §4 is complete.
-
-### MediaPipe Inference Latency
-
-*No benchmark in §4 measures actual MediaPipe inference time.* All `tracker-*` benchmarks substitute a `MagicMock` detector. This is intentional, not omission: real MediaPipe inference latency depends on the model file, the hardware, and the input image content, and per-environment variance is too large for a portable benchmark value.
-
-**Substitute measurement mechanism — already implemented**:
-- `_latest_inference_time_us` in `mediapipe_tracker.py` is recorded on each callback; this is propagated into per-frame `FrameResult.inference_time_us` and `RawHandResult.inference_time_us` (types defined in `types.py`).
-- `_PipelineStats` in `cli.py` accumulates end-to-end latency (via its `record_latency` method), reports mean / min / max on exit through `_print_exit_summary`, and emits a structured JSON log entry on shutdown from `main()`.
-- `LATENCY_WARN_MS` constant in `cli.py` (currently `50.0`) triggers per-frame warning logs when the threshold is exceeded.
-
-To obtain a real-MediaPipe inference latency number for an ADR or design discussion: run the tracker for a representative session and read the end-of-run summary (see §6).
-
-### Hot-Path Heap Allocation
-
-The patterns described in [tracker/ADR-0003](../docs/adr/tracker/0003-zero-allocation-memory-pooling.md) (pre-allocated NumPy buffers, RGB pool, in-place `cv2.cvtColor`) target *near-zero heap allocation on the inference / processing hot path in steady state*.
-
-**Status: design intent, not currently measured.** No `tracemalloc`-based test or benchmark exists in this project. The claim is currently inferred from the code patterns, not verified at runtime.
-
-**Substitute measurement (not yet implemented)**: a `tracemalloc`-based test wrapping repeated `process()` calls in steady state would produce a quantitative allocation count. Adding this test is tracked as project work; until it lands, treat the zero-allocation claim as a design statement rather than a measurement.
-
-## §6 How to Reproduce
+## §5 How to Reproduce
 
 **Run the `pytest-benchmark` suite**:
 ```bash
@@ -113,13 +85,12 @@ cd tracker
 uv run pytest --benchmark-only --benchmark-json=logs/benchmark_results.json
 ```
 
-**Collect real runtime stats** (the substitute for inference-latency benchmarks; §5):
+**Collect end-to-end latency runtime stats**:
 ```bash
 cd tracker
 uv run python -m hand_tracker
 # Run for a representative duration, then Ctrl+C.
-# Read the end-of-run summary table printed to the console,
-# or find the corresponding JSON log entry in the logs/ directory.
+# The exit-summary table prints end-to-end latency (mean / min / max) and FPS.
 ```
 
 **Deeper profiling with cProfile** (optional, for diagnosing specific hotspots):
@@ -130,12 +101,10 @@ uv run python -m cProfile -o logs/tracker_profile.stats -m hand_tracker
 # uv run snakeviz logs/tracker_profile.stats
 ```
 
-## §7 References
+## §6 References
 
 **ADRs that cite this document**
-- [tracker/ADR-0001 — Pipeline Architecture](../docs/adr/tracker/0001-tracker-architecture-overview.md) — `LATENCY_WARN_MS` and FPS targets.
-- [tracker/ADR-0002 — Async Capture](../docs/adr/tracker/0002-async-capture-single-slot-buffer.md) — capture-latency benchmarks.
-- [tracker/ADR-0003 — Zero-Allocation Hot Path](../docs/adr/tracker/0003-zero-allocation-memory-pooling.md) — heap-allocation target.
+- [tracker/ADR-0001 — Pipeline Architecture](../docs/adr/tracker/0001-tracker-architecture-overview.md) — the end-to-end latency (`LATENCY_WARN_MS`) and FPS validation targets, backed by the §4 benchmarks and §3 methodology.
 
 **Related project documents**
 - [`tracker/TUNING.md`](TUNING.md) — system and camera tuning guidance (separate concern).
