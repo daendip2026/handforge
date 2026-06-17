@@ -22,11 +22,11 @@ This document is the *performance evidence record* for the HandForge tracker. It
 
 | Metric | Target | Verification mechanism |
 |---|---|---|
-| Pipeline frame rate | ≥ 30 FPS (sustained) | Runtime `effective_fps` reported by `_PipelineStats` in `cli.py` |
-| End-to-end latency (per-frame, mean) | ≤ 50 ms | `LATENCY_WARN_MS` constant in `cli.py`; runtime mean reported on exit by `_print_exit_summary` in `cli.py` |
+| Pipeline frame rate | sustain the configured `target_fps` | Runtime `effective_fps` vs `target_fps`, reported by `_PipelineStats` in `cli.py` |
+| Per-frame consumer-loop latency | report-only; soft diagnostic warning past `LATENCY_WARN_MS` | mean / min / max via `_print_exit_summary` in `cli.py`; per-frame warning logged when an iteration exceeds `LATENCY_WARN_MS` |
 | Detection rate | report-only (no fixed target) | Runtime `detection_rate_pct` from `_PipelineStats` in `cli.py` |
 
-Each target is traceable to either a code constant or a runtime measurement mechanism.
+Each row is traceable to a code constant or a runtime measurement mechanism. Note: the latency metric is the consumer-loop iteration time (async inference excluded); `LATENCY_WARN_MS` is a loose diagnostic ceiling, not a tuned target.
 
 ## §3 Measurement Methodology
 
@@ -85,12 +85,12 @@ cd tracker
 uv run pytest --benchmark-only --benchmark-json=logs/benchmark_results.json
 ```
 
-**Collect end-to-end latency runtime stats**:
+**Collect per-frame latency runtime stats**:
 ```bash
 cd tracker
 uv run python -m hand_tracker
 # Run for a representative duration, then Ctrl+C.
-# The exit-summary table prints end-to-end latency (mean / min / max) and FPS.
+# The exit-summary table prints per-frame consumer-loop latency (mean / min / max) and FPS.
 ```
 
 **Deeper profiling with cProfile** (optional, for diagnosing specific hotspots):
@@ -104,7 +104,7 @@ uv run python -m cProfile -o logs/tracker_profile.stats -m hand_tracker
 ## §6 References
 
 **ADRs that cite this document**
-- [tracker/ADR-0001 — Pipeline Architecture](../docs/adr/tracker/0001-tracker-architecture-overview.md) — the end-to-end latency (`LATENCY_WARN_MS`) and FPS validation targets, backed by the §4 benchmarks and §3 methodology.
+- [tracker/ADR-0001 — Pipeline Architecture](../docs/adr/tracker/0001-tracker-architecture-overview.md) — the §4 benchmarks and §3 methodology backing its Validation Targets (FPS sustain, consumer-loop processing cost).
 
 **Related project documents**
 - [`tracker/TUNING.md`](TUNING.md) — system and camera tuning guidance (separate concern).

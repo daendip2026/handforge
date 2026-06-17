@@ -4,7 +4,7 @@
 * Deciders: daendip2026
 * Consulted: Claude Opus 4.8 (structure review)
 * Created: 2026-05-26
-* Last Modified: 2026-06-16
+* Last Modified: 2026-06-17
 
 ## Context and Problem Statement
 
@@ -79,7 +79,7 @@ All threads share memory in one process; no IPC, no serialization between stages
 
 ### Validation Targets
 
-* End-to-end per-frame latency target: `< 50ms` (the `LATENCY_WARN_MS` threshold in `cli.py`; warnings are emitted past this point).
+* Per-frame consumer-loop latency is logged with a soft warning past `LATENCY_WARN_MS` (a diagnostic ceiling, not a tuned target; async inference is excluded from this measurement).
 * Dominant per-frame allocation (BGR→RGB conversion) eliminated via pooling on the hot path — currently design intent.
 * FPS sustained at or above `camera.target_fps` — the CLI surfaces actual vs target FPS on exit.
 
@@ -87,6 +87,6 @@ Benchmark measurements supporting these targets and the measurement methodology 
 
 ### Re-review Conditions
 
-* End-to-end latency consistently exceeds the 50ms target under representative load → re-examine stage decomposition or threading model.
+* Per-frame consumer-loop latency consistently approaches the frame interval under representative load → re-examine stage decomposition or threading model.
 * MediaPipe inference latency becomes the dominant frame-budget consumer → consider GPU-accelerated inference (MediaPipe Tasks API supports a GPU mode) or model-variant changes.
 * A second pipeline consumer (besides the avatar wire) materialises with different freshness/ordering requirements → revisit the drop-oldest assumption at the affected queue.

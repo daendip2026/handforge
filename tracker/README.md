@@ -63,10 +63,10 @@ uv run python scripts/run_tracker.py --view --log-level DEBUG
 
 ### Runtime Stats
 
-The tracker emits performance stats throughout each session and a structured summary on exit, giving FPS and end-to-end latency for your specific hardware.
+The tracker emits performance stats throughout each session and a structured summary on exit, giving FPS and per-frame latency for your specific hardware.
 
-- **On exit** — the console prints a summary covering effective FPS, end-to-end latency, detection rate, and total frames. The same numbers are emitted as a JSON log entry to the configured log directory.
-- **Per-frame warnings** — when end-to-end latency exceeds `LATENCY_WARN_MS` (50 ms by default, defined in `cli.py`), a per-frame warning is logged with the offending value.
+- **On exit** — the console prints a summary covering effective FPS, per-frame latency, detection rate, and total frames. The same numbers are emitted as a JSON log entry to the configured log directory.
+- **Per-frame warnings** — when a consumer-loop iteration exceeds `LATENCY_WARN_MS` (a soft diagnostic threshold defined in `cli.py`), a per-frame warning is logged with the offending value.
 
 Methodology and reproduction commands are in [`PERFORMANCE.md`](PERFORMANCE.md).
 
