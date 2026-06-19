@@ -103,27 +103,26 @@ class TrackerConfig(HandForgeConfigModel):
     fps_window_size: int = Field(default=30, ge=2, le=300)
 
 
-class WebSocketConfig(HandForgeConfigModel):
-    """WebSocket server/client settings."""
+class TransportConfig(HandForgeConfigModel):
+    """
+    IPC transport endpoints (see system/ADR-0001 channel separation).
 
-    host: str = Field(default="127.0.0.1")
-    port: int = Field(default=8080, ge=1024, le=65535)
+    Two planes over loopback: high-frequency landmark data on UDP (stale-drop)
+    and lossless control signaling on TCP. The ports are a wire contract —
+    data 9000 / control 9001 — not a tunable; change them only by changing
+    that contract.
+    """
 
-
-class OSCConfig(HandForgeConfigModel):
-    """Open Sound Control (OSC) settings."""
-
-    host: str = Field(default="127.0.0.1")
-    port: int = Field(default=9000, ge=1024, le=65535)
-    address: str = Field(default="/handforge/landmarks")
-
-
-class OutputConfig(HandForgeConfigModel):
-    """Networking & Integration settings."""
-
-    mode: Literal["websocket", "osc", "console", "none"] = Field(default="websocket")
-    websocket: WebSocketConfig = Field(default_factory=WebSocketConfig)
-    osc: OSCConfig = Field(default_factory=OSCConfig)
+    udp_host: str = Field(
+        default="127.0.0.1", description="Data-plane (UDP) destination host"
+    )
+    udp_port: int = Field(
+        default=9000, ge=1024, le=65535, description="Data-plane (UDP) port"
+    )
+    tcp_host: str = Field(default="127.0.0.1", description="Control-plane (TCP) host")
+    tcp_port: int = Field(
+        default=9001, ge=1024, le=65535, description="Control-plane (TCP) port"
+    )
 
 
 class LoggingConfig(HandForgeConfigModel):
@@ -161,7 +160,7 @@ class AppConfig(BaseSettings):
     camera: CameraConfig = Field(default_factory=CameraConfig)
     mediapipe: MediaPipeConfig = Field(default_factory=MediaPipeConfig)
     tracker: TrackerConfig = Field(default_factory=TrackerConfig)
-    output: OutputConfig = Field(default_factory=OutputConfig)
+    transport: TransportConfig = Field(default_factory=TransportConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @model_validator(mode="after")

@@ -173,22 +173,31 @@ class TestLoggingConfig:
             LoggingConfig(max_bytes=512)  # Minimum is 1024
 
 
-class TestNetworkConfig:
-    """Critical tests for network availability (Port ranges)."""
+class TestTransportConfig:
+    """Critical tests for transport port ranges."""
 
-    def test_websocket_invalid_port(self) -> None:
-        from hand_tracker.config import WebSocketConfig
-
-        with pytest.raises(ValidationError):
-            WebSocketConfig(port=80)  # Privileged port
-        with pytest.raises(ValidationError):
-            WebSocketConfig(port=70000)  # Invalid port
-
-    def test_osc_invalid_port(self) -> None:
-        from hand_tracker.config import OSCConfig
+    def test_invalid_udp_port(self) -> None:
+        from hand_tracker.config import TransportConfig
 
         with pytest.raises(ValidationError):
-            OSCConfig(port=1023)  # Just outside user range
+            TransportConfig(udp_port=80)  # Privileged port
+        with pytest.raises(ValidationError):
+            TransportConfig(udp_port=70000)  # Above valid range
+
+    def test_invalid_tcp_port(self) -> None:
+        from hand_tracker.config import TransportConfig
+
+        with pytest.raises(ValidationError):
+            TransportConfig(tcp_port=1023)  # Just outside user range
+
+    def test_defaults_match_wire_contract(self) -> None:
+        from hand_tracker.config import TransportConfig
+
+        # Ports are a contract, not a tunable: this test
+        # fails loudly if a default is silently changed.
+        cfg = TransportConfig()
+        assert cfg.udp_port == 9000  # data plane
+        assert cfg.tcp_port == 9001  # control plane
 
 
 class TestAppConfig:

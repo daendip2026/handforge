@@ -33,16 +33,12 @@ tracker:
   primary_hand: "Both"               # "Both" | "Left" | "Right"
   fps_window_size: 30                 # Number of frames for sliding-window (smoothing)
 
-# Networking & Integration settings
-output:
-  mode: "websocket"                   # websocket | osc | console | none
-  websocket:
-    host: "127.0.0.1"
-    port: 8080
-  osc:
-    host: "127.0.0.1"
-    port: 9000
-    address: "/handforge/landmarks"
+# Ports are a wire contract: data 9000 / control 9001.
+transport:
+  udp_host: "127.0.0.1"   # Data plane: landmark frames, stale-drop
+  udp_port: 9000
+  tcp_host: "127.0.0.1"   # Control plane: calibration/lifecycle, lossless
+  tcp_port: 9001
 
 logging:
   level: "INFO"                       # DEBUG | INFO | WARNING | ERROR
