@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package handforge;
+
+// Generated C# lands in this namespace; generated Python module is `handforge`.
+option csharp_namespace = "HandForge.Proto";
+
+// =============================================================================
+// HandForge wire schema — /proto/handtracking.proto.
+//
+// Two planes (see system/ADR-0001 for the channel-separation rationale):
+//   Data plane    UDP:9000  -> Frame   (one datagram = one Frame; no framing)
+//   Control plane TCP:9001  -> message schema deferred until the control plane
+//                              is implemented; protobuf is additive, so it is
+//                              added then at zero cost (absence is a decision).
+//
+// TAG POLICY (the only irreversible thing here): field numbers are permanent.
+// Never reuse a number; mark a removed field's number `reserved`.
+//
+// Coordinates: the tracker emits MediaPipe-native metric coordinates. Unit
+// conversion (to Unity space) and smoothing are consumer-side (Unity).
+// Python does capture + inference + packaging only; no avatar-domain transform.
+//
+// Intentionally NOT on the wire (recorded so absence reads as a decision):
+//   - image-space (normalized) landmarks: these encode in-frame placement
+//     (normalized x,y) + wrist-relative depth (z). The avatar derives finger
+//     articulation + wrist rotation from the metric frame, so image-space is
+//     not needed on the wire.
+//   - per-hand confidence: deferred (additive later; see HandPose).
+//   - tracker fps / inference time: control-plane telemetry (deferred), not
+//     on the data-plane Frame.
+// =============================================================================
+
+
+// ============================ Data plane (UDP:9000) ==========================
+
+// One hand landmark in hand-centric metric space.
+// Units: metres. Origin: MediaPipe hand_world_landmarks origin = the hand's
+// approximate geometric center (NOT the wrist, NOT absolute world).
+message Landmark {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+// Performer's anatomical hand side, AFTER mirror correction.
+// Contract obligation: the tracker MUST deliver an anatomically-correct label
+// regardless of how it handles mirror_input. Domain-enum boundary mapping
+// (applied once, just before serialization):
+//   LEFT  -> HANDEDNESS_LEFT
+//   RIGHT -> HANDEDNESS_RIGHT
+//   UNKNOWN (side undetermined) -> HANDEDNESS_UNSPECIFIED
+//   BOTH (filter intent only) -> must never reach here; the mapping raises.
+enum Handedness {
+  HANDEDNESS_UNSPECIFIED = 0;
+  HANDEDNESS_LEFT = 1;
+  HANDEDNESS_RIGHT = 2;
+}
+
+// One detected hand.
+message HandPose {
+  Handedness handedness = 1;
+  repeated Landmark landmarks = 2;  // expected length 21
+  // field 3 reserved by intent for additive `float confidence = 3;` (deferred)
+}
+
+// A multi-hand frame for the wire. `hands` is 0..2 (empty = no hand detected,
+// still sent as a "no hands" signal). frame_index is monotonic per session and
+// is the basis for receiver-side stale-drop ordering. Both timestamps are on
+// the SENDER's monotonic clock (µs); cross-process latency reconciliation is a
+// future concern, not encoded here.
+message Frame {
+  repeated HandPose hands = 1;
+  uint32 frame_index = 2;
+  uint64 acquisition_timestamp_us = 3;  // stamped at camera grab
+  uint64 sent_timestamp_us = 4;         // stamped at serialization
+}
+
+
+// ========================== Control plane (TCP:9001) =========================
+//
+// The control-plane message schema (liveness/telemetry, calibration, mode,
+// shutdown) is intentionally DEFERRED until the control plane is implemented.
+// The two-plane architecture is decided (system/ADR-0001); only the concrete
+// message bodies are omitted here. protobuf's additive evolution (system/
+// ADR-0003) means they are added at that point at zero cost to the data plane
+// above — so the absence reads as a decision, not an oversight.

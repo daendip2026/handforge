@@ -35,7 +35,9 @@ dev = [
     "mypy>=1.8",
     "ruff>=0.3",
     "types-PyYAML>=6.0",
+    "types-protobuf>=5.26",  # stubs for the protobuf runtime (google.protobuf)
     "pre-commit>=3.6",
+    "grpcio-tools>=1.66", # Protobuf codegen (build-time only)
 ]
 
 [tool.setuptools.packages.find]
@@ -49,6 +51,7 @@ where = ["src"]
 target-version = "py311"
 line-length = 88
 src = ["src", "tests", "scripts"]
+extend-exclude = ["*_pb2.py", "*_pb2.pyi"] # Generated protobuf bindings are derived artifacts
 
 [tool.ruff.lint]
 select = [
@@ -87,8 +90,17 @@ mypy_path = "src"
 
 # mediapipe ships no stubs; silence missing imports
 [[tool.mypy.overrides]]
-module = ["mediapipe.*", "cv2.*", "pytest.*", "rich.*", "numpy.*", "pytest_benchmark.*"]
+module = ["mediapipe.*", "cv2.*", "pytest.*", "rich.*", "numpy.*", "pytest_benchmark.*", "grpc_tools.*"]
 ignore_missing_imports = true
+
+# Generated protobuf bindings are derived artifacts, not hand-maintained code.
+# The protobuf *library* surface is typed via types-protobuf (so the serializer
+# that consumes these classes is genuinely checked), but protoc's own generated
+# stub style (bare Mapping, Message subclassing) does not satisfy --strict, and
+# strict-checking compiler output buys nothing. Trust the generator; exclude it.
+[[tool.mypy.overrides]]
+module = ["hand_tracker.handtracking_pb2"]
+ignore_errors = true
 
 # Silence unused ignore warnings in tests to support platform-specific stubs
 [[tool.mypy.overrides]]

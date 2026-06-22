@@ -19,12 +19,20 @@ From the `tracker/` directory:
    uv sync --all-extras
    ```
 
-2. **Install pre-commit hooks:**
+2. **Generate the protobuf bindings:**
+   The wire types are generated from [`/proto/handtracking.proto`](../proto/handtracking.proto)
+   — the single source of truth — and are **not** committed. Regenerate them after
+   cloning, and again whenever the schema changes:
+   ```bash
+   uv run python scripts/generate_proto.py
+   ```
+
+3. **Install pre-commit hooks:**
    ```bash
    pre-commit install
    ```
 
-3. **Download the MediaPipe model:**
+4. **Download the MediaPipe model:**
    ```bash
    uv run python scripts/download_models.py
    ```

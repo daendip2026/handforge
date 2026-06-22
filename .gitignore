@@ -34,6 +34,11 @@ dmypy.json
 # Ruff
 .ruff_cache/
 
+# Generated protobuf bindings — derived from /proto/*.proto.
+# Regenerate locally and in CI via tracker/scripts/generate_proto.py.
+*_pb2.py
+*_pb2.pyi
+
 # HandForge runtime artifacts
 **/logs/*
 !**/logs/.gitkeep
