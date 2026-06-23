@@ -24,5 +24,6 @@ repos:
           - pydantic>=2.6
           - pydantic-settings>=2.2
           - types-PyYAML>=6.0
+          - types-protobuf>=5.26  # stubs for google.protobuf in generated _pb2
           - pytest-benchmark>=4.0
         args: [--config-file=tracker/pyproject.toml]
