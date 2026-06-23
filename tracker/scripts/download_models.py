@@ -40,7 +40,7 @@ def main() -> None:
 
     target_path = models_dir / MODEL_FILENAME
 
-    if target_path.exists():
+    if target_path.exists() and target_path.stat().st_size > 0:
         print(f"Model already exists at: {target_path}")
         print("Delete it if you want to re-download.")
         return
