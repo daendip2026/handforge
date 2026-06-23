@@ -26,6 +26,8 @@ from hand_tracker.landmark_processor import (
 )
 from hand_tracker.logger import AsyncLoggerLifecycle, get_logger
 from hand_tracker.mediapipe_tracker import MediaPipeTracker
+from hand_tracker.transport.protobuf import ProtobufSerializer
+from hand_tracker.transport.udp import UdpTransport
 from hand_tracker.utils import console_summary
 from hand_tracker.viewer import DebugViewer
 
@@ -305,8 +307,14 @@ def main() -> int:
                         },
                     )
 
-            with MediaPipeTracker(cfg.mediapipe, cfg.tracker, cfg.camera) as tracker:
+            with (
+                MediaPipeTracker(cfg.mediapipe, cfg.tracker, cfg.camera) as tracker,
+                UdpTransport(
+                    cfg.transport.udp_host, cfg.transport.udp_port
+                ) as transport,
+            ):
                 processor = LandmarkProcessor(window_size=cfg.tracker.fps_window_size)
+                serializer = ProtobufSerializer()
                 _rich_console.print(
                     "\n[bold green]Tracker running.[/bold green] "
                     "Press [bold]Ctrl+C[/bold] to stop.\n"
@@ -328,6 +336,23 @@ def main() -> int:
                     processed = processor.update(result)
                     if processed.hands:
                         stats.total_processed += 1
+
+                    # Data-plane emit: every frame is sent, empty-hands frames
+                    # included (a valid "no hands" signal). The sent timestamp is
+                    # wall-clock µs; aligning it to the capture perf_counter anchor
+                    # is deferred. A transport failure drops the frame
+                    # and never stalls the loop.
+                    payload = serializer.serialize(processed, time.time_ns() // 1000)
+                    try:
+                        transport.send(payload)
+                    except OSError as exc:
+                        log.warning(
+                            "frame send failed; dropping frame",
+                            extra={
+                                "error": str(exc),
+                                "frame_index": processed.frame_index,
+                            },
+                        )
 
                     latency_ms = (time.perf_counter() - t_loop_start) * 1_000.0
                     stats.record_latency(latency_ms)
