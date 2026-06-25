@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.35.1" />
+    <PackageReference Include="Grpc.Tools" Version="2.81.1">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Generate C# message types from the single source-of-truth wire schema.
+       GrpcServices=None: emit only the protobuf messages, no gRPC service stubs
+       (the data plane is our own UDP, not gRPC). Output lands in obj/ (gitignored),
+       regenerated every build - nothing checked in, same policy as the Python side. -->
+  <ItemGroup>
+    <Protobuf Include="../../proto/handtracking.proto" ProtoRoot="../../proto" GrpcServices="None" />
+  </ItemGroup>
+
+</Project>
