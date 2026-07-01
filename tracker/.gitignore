@@ -1,0 +1,45 @@
+# Ignores for the Python tracker package. Repo-global patterns (OS, IDE,
+# secrets, tool caches) live in the top-level .gitignore; keep only
+# tracker-specific rules here so they cannot leak into sibling subprojects.
+
+# Python bytecode / native extensions
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Packaging
+*.egg
+*.egg-info/
+*.whl
+*.spec
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+env/
+.python-version
+
+# Testing & coverage
+.coverage
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.benchmarks/
+.dmypy.json
+dmypy.json
+
+# Generated protobuf bindings — derived from /proto/*.proto.
+# Regenerate locally and in CI via tracker/scripts/generate_proto.py.
+*_pb2.py
+*_pb2.pyi
+
+# Runtime artifacts (MediaPipe model downloads, session logs)
+**/logs/*
+!**/logs/.gitkeep
+*.log
+models/
+*.task
