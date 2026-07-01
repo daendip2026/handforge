@@ -17,6 +17,11 @@ option csharp_namespace = "HandForge.Proto";
 // TAG POLICY (the only irreversible thing here): field numbers are permanent.
 // Never reuse a number; mark a removed field's number `reserved`.
 //
+// After editing this schema, regenerate BOTH bindings (each self-documents its
+// exact command):
+//   Python (tracker):  tracker/scripts/generate_proto.py
+//   C#     (avatar):   dotnet build avatar/HandForge.Proto.Codegen
+//
 // Coordinates: the tracker emits MediaPipe-native metric coordinates. Unit
 // conversion (to Unity space) and smoothing are consumer-side (Unity).
 // Python does capture + inference + packaging only; no avatar-domain transform.

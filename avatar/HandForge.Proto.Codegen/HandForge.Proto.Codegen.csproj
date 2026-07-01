@@ -1,0 +1,38 @@
+﻿  <Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Regenerates the C# wire binding from proto/handtracking.proto.
+         RE-RUN after editing the schema:  dotnet build avatar/HandForge.Proto.Codegen
+
+         Code-generation only. Grpc.Tools generates into obj/ (its normal transient
+         location; GrpcServices=None), then CopyGeneratedBinding copies the result
+         into the Unity project's Assets/ as a committed source file. Generating to
+         obj/ (not straight to Assets/) keeps Grpc.Tools on its supported path:
+         dotnet clean wipes only the obj/ copy, never the committed Assets/ copy.
+         Same Grpc.Tools 2.81.1 as WireProbe -> byte-identical output.
+         Built with dotnet; never opened by Unity. -->
+
+    <PropertyGroup>
+      <TargetFramework>net9.0</TargetFramework>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Google.Protobuf" Version="3.35.1" />
+      <PackageReference Include="Grpc.Tools" Version="2.81.1">
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        <PrivateAssets>all</PrivateAssets>
+      </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Protobuf Include="../../proto/handtracking.proto" ProtoRoot="../../proto" GrpcServices="None" />
+    </ItemGroup>
+
+    <!-- Publish the generated binding into the Unity Assets tree as committed source. -->
+    <Target Name="CopyGeneratedBinding" AfterTargets="Build">
+      <Copy SourceFiles="$(IntermediateOutputPath)Handtracking.cs"
+            DestinationFiles="../HandForge.Avatar/Assets/HandForge/Proto/Handtracking.cs"
+            SkipUnchangedFiles="true" />
+    </Target>
+
+  </Project>
+  
