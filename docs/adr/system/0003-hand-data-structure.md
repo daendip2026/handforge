@@ -58,4 +58,3 @@ Chosen option: **Option 1**, because a schema-first encoder prevents producer/co
 * **GC performance stress testing violates the frame budget** ➔ swap the encoder behind `ISerializer`. Only at this point are FlatBuffers and similar encoders compared.
 * **The hand-landmark model changes from 21 points** (e.g. additional hand keypoints) ➔ evolve the schema additively; do not reuse tag numbers.
 * **Absolute world coordinates become necessary** ➔ supplement the metric semantics with a separate `WorldTransform`; the hand-centric meaning defined in this ADR is retained, not replaced.
-

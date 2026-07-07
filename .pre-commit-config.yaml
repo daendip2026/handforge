@@ -1,9 +1,24 @@
-files: ^tracker/
+# Hygiene hooks run repo-wide by default; machine-owned trees are opted out
+# once, globally, below. Project-bound toolchains (ruff/mypy -> tracker,
+# dotnet format -> C#) scope themselves per hook.
+#
+# Machine-owned trees: no hook should churn these. The Unity project is
+# machine-owned wholesale (Unity rewrites its assets, so fixers would just
+# fight the serializer) EXCEPT Assets/HandForge/Scripts/, the one hand-written
+# folder. Everything else in the repo (docs, proto, workflows, hand-written
+# C#/Python) is covered by default.
+exclude: |
+  (?x)^(
+      avatar/HandForge\.Avatar/Assets/(?!HandForge/Scripts/)
+    | avatar/HandForge\.Avatar/(Packages|ProjectSettings)/
+  )|\.meta$
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]  # keep markdown hard line breaks
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
@@ -12,14 +27,17 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.9
     hooks:
-      - id: ruff
+      - id: ruff-check
+        files: ^tracker/          # Python toolchain is tracker-bound
         args: [--fix]
       - id: ruff-format
+        files: ^tracker/
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.20.0
     hooks:
       - id: mypy
+        files: ^tracker/          # config + deps below are tracker-specific
         additional_dependencies:
           - pydantic>=2.6
           - pydantic-settings>=2.2
@@ -27,3 +45,16 @@ repos:
           - types-protobuf>=5.26  # stubs for google.protobuf in generated _pb2
           - pytest-benchmark>=4.0
         args: [--config-file=tracker/pyproject.toml]
+
+  # C# (avatar): normalizes indentation + trailing whitespace per .editorconfig
+  # (this DOES re-indent, by design). --folder works without Unity's gitignored
+  # .csproj files. Generated/template C# is already in the global exclude.
+  # Requires the .NET SDK (already a repo prerequisite for proto codegen).
+  - repo: local
+    hooks:
+      - id: dotnet-format-whitespace
+        name: dotnet format whitespace (C#)
+        language: system
+        types: ["c#"]
+        entry: dotnet format whitespace --folder --include
+        require_serial: true
