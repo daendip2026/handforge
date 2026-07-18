@@ -17,6 +17,8 @@ public class FrameReceiver : MonoBehaviour
     private const int Port = 9000;
     private const int JoinTimeoutMs = 500; // long enough for the loop to observe the close & exit, short enough not to stall teardown
 
+    private Animator _humanoidRig;
+    private Transform _rightHandBone;
     private UdpClient _udp;
     private Thread _thread;
     private volatile bool _running;
@@ -27,6 +29,15 @@ public class FrameReceiver : MonoBehaviour
 
     private void Start()
     {
+        _humanoidRig = GetComponent<Animator>();
+        _rightHandBone = _humanoidRig.GetBoneTransform(HumanBodyBones.RightHand);
+        if (_rightHandBone == null)
+        {
+            enabled = false;
+            Debug.LogError("RightHand is not found");
+            return;
+        }
+
         _udp = new UdpClient(new IPEndPoint(IPAddress.Loopback, Port));
         _running = true;
         _thread = new Thread(ReceiveLoop)
@@ -72,7 +83,16 @@ public class FrameReceiver : MonoBehaviour
         Frame frame = Interlocked.Exchange(ref _latest, null);
         if (frame == null) return;
 
-        Debug.Log($"FrameIndex: {frame.FrameIndex} , Hands.Count: {frame.Hands.Count}");
+        if (frame.Hands.Count == 0) return;
+
+        // Ad-hoc mapping (screen-x → wrist z-rotation), deliberately meaningless.
+        // Proves data flow only; real coordinate design will be done later.
+        var hand = frame.Hands[0];
+        var angle = (hand.Landmarks[0].X - 0.5f) * 90f;
+        _rightHandBone.localRotation = Quaternion.Euler(0, 0, angle);
+
+        Debug.Log($"angle: {angle}");
+
     }
 
     private void OnDestroy()
