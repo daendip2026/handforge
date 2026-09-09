@@ -104,10 +104,6 @@ The license text is published at the `licenseUrl` above.
 
 * VRoid Studio terms of use, which govern models produced from its bundled base
   models.
-* Unity URP template material under `avatar/HandForge.Avatar/Assets/TutorialInfo/`
-  — `Readme.cs`, `ReadmeEditor.cs`, `Icons/URP.png`, `Layout.wlt`. Shipped by the
-  Unity project template and committed here, so this repository redistributes it.
-  The project has no consumer for it; removing it would close this item.
 * `Grpc.Tools` 2.81.1, declared in `HandForge.Proto.Codegen.csproj` with
   `PrivateAssets=all`. Build-only and not redistributed.
 * Python dependencies declared in `tracker/pyproject.toml`. Resolved by the
