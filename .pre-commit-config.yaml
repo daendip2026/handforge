@@ -1,25 +1,31 @@
-# Hygiene hooks run repo-wide by default; machine-owned trees are opted out
-# once, globally, below. Project-bound toolchains (ruff/mypy -> tracker,
-# dotnet format -> C#) scope themselves per hook.
+# Hygiene hooks run repo-wide. Project-bound toolchains scope themselves per
+# hook: ruff and mypy to tracker/, dotnet format to C#.
 #
-# Machine-owned trees: no hook should churn these. The Unity project is
-# machine-owned wholesale (Unity rewrites its assets, so fixers would just
-# fight the serializer) EXCEPT Assets/HandForge/Scripts/, the one hand-written
-# folder. Everything else in the repo (docs, proto, workflows, hand-written
-# C#/Python) is covered by default.
-exclude: |
-  (?x)^(
-      avatar/HandForge\.Avatar/Assets/(?!HandForge/Scripts/)
-    | avatar/HandForge\.Avatar/(Packages|ProjectSettings)/
-  )|\.meta$
+# The Unity exclusion is repeated per fixer rather than set once at the top
+# level. A top-level `exclude` is intersected with every hook's own filter and
+# cannot be overridden per hook, so a single top-level entry would also stop the
+# checkers from seeing the Unity tree.
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      # Fixers write, and Unity regenerates its own assets, so they skip the
+      # Unity tree and every .meta file.
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]  # keep markdown hard line breaks
+        exclude: |
+          (?x)^(
+              avatar/HandForge\.Avatar/Assets/(?!HandForge/Scripts/)
+            | avatar/HandForge\.Avatar/(Packages|ProjectSettings)/
+          )|\.meta$
       - id: end-of-file-fixer
+        exclude: |
+          (?x)^(
+              avatar/HandForge\.Avatar/Assets/(?!HandForge/Scripts/)
+            | avatar/HandForge\.Avatar/(Packages|ProjectSettings)/
+          )|\.meta$
+      # Checkers only read, so they run everywhere including Assets/.
       - id: check-yaml
       - id: check-added-large-files
       - id: check-toml
@@ -46,10 +52,9 @@ repos:
           - pytest-benchmark>=4.0
         args: [--config-file=tracker/pyproject.toml]
 
-  # C# (avatar): normalizes indentation + trailing whitespace per .editorconfig
-  # (this DOES re-indent, by design). --folder works without Unity's gitignored
-  # .csproj files. Generated/template C# is already in the global exclude.
-  # Requires the .NET SDK (already a repo prerequisite for proto codegen).
+  # C# (avatar): normalizes indentation and trailing whitespace per
+  # .editorconfig; it re-indents by design. --folder works without Unity's
+  # gitignored .csproj files. Requires the .NET SDK.
   - repo: local
     hooks:
       - id: dotnet-format-whitespace
@@ -58,3 +63,8 @@ repos:
         types: ["c#"]
         entry: dotnet format whitespace --folder --include
         require_serial: true
+        exclude: |
+          (?x)^(
+              avatar/HandForge\.Avatar/Assets/(?!HandForge/Scripts/)
+            | avatar/HandForge\.Avatar/(Packages|ProjectSettings)/
+          )|\.meta$
