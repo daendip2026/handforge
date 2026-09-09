@@ -6,9 +6,11 @@
 
 ## Verification
 
-<!-- What was run and what it showed. Name the command, or the file that
-     carries the evidence. CI passing is not verification of something CI
-     does not cover. -->
+<!-- What this change was measured to do, stated so a reader can tell it
+     apart from the change not being made. A command that would have passed
+     before the change says nothing about it; if you name one, say what its
+     passing rules out. CI passing is not verification of something CI does
+     not cover. -->
 
 ## Not verified
 
