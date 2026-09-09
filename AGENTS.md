@@ -55,5 +55,8 @@
 - Surface conflicting or ambiguous requirements before changing the affected area. Continue safe work that is independent of the conflict.
 - Present material tradeoffs and reasoned disagreement instead of silently choosing a direction or agreeing without analysis.
 - Keep commits and pull requests focused, reviewable, and independently reversible. Describe the reason and the verification evidence; do not mix unrelated cleanup.
+- Choose a pull request's merge method from the shape of that pull request's commits, not from what an earlier pull request used. Squash when the branch's commits rework one another; preserve them when each commit builds and stands on its own. Say which and why in the pull request.
+- CI runs once per pull request, not once per commit. A merge method that lands the branch's intermediate commits on `main` lands commits that no CI run covered.
+- When a pull request has one commit, neither method collapses anything and commit shape decides nothing. Choose squash there, so `main` keeps a pointer to the pull request that holds what the commit message does not.
 - Do not infer authorization to stage, commit, push, open or merge a pull request, publish, or add dependencies.
 - At handoff, report unresolved questions and whether work is local, committed, pushed, or published.
