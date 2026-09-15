@@ -43,14 +43,14 @@ Chosen option: **Option 3**, because it is designed to meet the frame-budget con
 
 ### Pipeline Stages
 
-| Stage | Owner module | Input | Output |
-|---|---|---|---|
-| Capture | `capture.py` | webcam (OpenCV) | `Frame` (raw BGR + acquisition timestamp) |
-| Inference | `mediapipe_tracker.py` | `Frame` | `FrameResult` (tuple of `RawHandResult`) |
-| Processing | `landmark_processor.py` | `FrameResult` | `ProcessedFrame` (tuple of `ProcessedHand` + FPS) |
-| Output | `cli.py` / future wire emitter | `ProcessedFrame` | console / future protobuf wire |
+| Stage | Input | Output |
+|---|---|---|
+| Capture | webcam (OpenCV) | `Frame` (raw BGR + acquisition timestamp) |
+| Inference | `Frame` | `FrameResult` (tuple of `RawHandResult`) |
+| Processing | `FrameResult` | `ProcessedFrame` (tuple of `ProcessedHand` + FPS) |
+| Output | `ProcessedFrame` | console, and one protobuf `Frame` per UDP datagram |
 
-Each stage is implemented as its own module with a single responsibility. Stages communicate only through the data-flow vocabulary above; they do not reach into each other's internals.
+Stages communicate only through the data-flow vocabulary above; they do not reach into each other's internals.
 
 ### Threading Model
 
