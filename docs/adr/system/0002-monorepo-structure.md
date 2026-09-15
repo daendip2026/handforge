@@ -4,7 +4,7 @@
 * Deciders: daendip2026
 * Consulted: Claude Opus 4.7 (structure review)
 * Created: 2026-05-18
-* Last Modified: 2026-05-25
+* Last Modified: 2026-09-15
 
 ## Context and Problem Statement
 
@@ -59,7 +59,7 @@ Chosen option: **Option 2**, because a wire-schema change requires atomic cross-
 
 ### Validation Targets
 
-Not applicable. The failure mode this decision prevents — schema skew between `tracker` and `avatar` — is structurally impossible in a single repository, so there is no runtime metric to measure.
+* CI fails when the committed `avatar/HandForge.Avatar/Assets/HandForge/Proto/Handtracking.cs` differs from what `avatar/HandForge.Proto.Codegen` generates from the current `proto/handtracking.proto`. A single repository lets a schema change and both bindings land in one commit; it does not force the committed C# binding to be regenerated in that commit.
 
 ### Re-review Conditions
 
