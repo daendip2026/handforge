@@ -329,7 +329,7 @@ class MediaPipeTracker:
 
                 # 2. Filtering: Only keep if it matches target_side (BOTH always passes)
                 if target_side == h_both or final_side == target_side:
-                    # Zero-allocation parsing: pre-allocate numpy array and fill directly
+                    # One (LANDMARK_COUNT, 3) array per hand, filled in place.
                     # to avoid creating 21 intermediate Python lists per hand.
                     lms_arr = np.empty((LANDMARK_COUNT, 3), dtype=np.float32)
                     for i, p in enumerate(mp_lm):
