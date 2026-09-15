@@ -4,7 +4,7 @@
 * Deciders: daendip2026
 * Consulted: Claude Opus 4.8 (structure review)
 * Created: 2026-05-22
-* Last Modified: 2026-06-17
+* Last Modified: 2026-09-15
 
 ## Context and Problem Statement
 
@@ -13,9 +13,8 @@ This ADR is **post-hoc documentation**. The tracker (Python, MediaPipe Tasks API
 ### Documented Semantics
 
 - **Landmarks.** 21 points per hand, matching the MediaPipe HandLandmarker model.
-- **Two coordinate semantics.** The data carries two distinct, well-defined coordinate frames:
-  - *image-space*: normalized `[0,1]` for (x, y); z is wrist-relative depth.
-  - *metric*: hand-centric, origin at the hand's approximate geometric center, in metres ([MediaPipe HandLandmarker Python guide](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker/python)). This is **not** an absolute world coordinate.
+- **Metric coordinates on the wire.** Each landmark travels in the metric frame: hand-centric, origin at the hand's approximate geometric center, in metres ([MediaPipe HandLandmarker Python guide](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker/python)). This is **not** an absolute world coordinate. The avatar derives finger articulation and wrist rotation from this frame; it does not receive where the hand sits in the camera image.
+  - The tracker also holds *image-space* landmarks (normalized `[0,1]` for (x, y); z is wrist-relative depth). They stay on the tracker side.
 - **Handedness.** Each detected hand is classified by a `Handedness` enum. On the wire, values are `Left`, `Right`, or `Unknown` — the last is an explicit fallback used when the side cannot be determined from the model output. The label's ground-truth meaning depends on the tracker's selfie-mode handling (`mirror_input` configuration) and MediaPipe's handedness convention.
 - **Time.** Time is represented as a `uint64` microsecond value. Which messages carry a timestamp is a field-layout matter, out of scope here.
 
