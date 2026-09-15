@@ -55,7 +55,7 @@ Chosen option: **Option 2**, because a wire-schema change requires atomic cross-
 
 ### Accepted Trade-offs
 
-* **No independent CI or release boundary per stage.** A monorepo couples the two stages' repository lifecycle. This cost is accepted because the independent-release benefit it would buy does not exist under the single-machine constraint, so the coupling costs nothing that is actually used today.
+* **Coupled repository lifecycle.** A monorepo couples the two stages' repository lifecycle. This cost is accepted because the independent-release benefit it would buy does not exist under the single-machine constraint, so the coupling costs nothing that is actually used today.
 
 ### Validation Targets
 
