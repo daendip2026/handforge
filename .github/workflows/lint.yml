@@ -51,8 +51,39 @@ jobs:
       - name: Run tests
         run: uv run pytest --benchmark-disable
 
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Run pre-commit
+        run: SKIP=ruff-check,ruff-format,mypy pre-commit run --all-files --show-diff-on-failure
+
   ci-success:
-    needs: [lint-and-typecheck]
+    needs: [lint-and-typecheck, pre-commit]
     runs-on: ubuntu-latest
     if: always()
     steps:
