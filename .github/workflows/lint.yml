@@ -45,6 +45,12 @@ jobs:
       - name: Run mypy
         run: uv run mypy src tests scripts
 
+      - name: Install MediaPipe runtime libraries
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgles2
+
+      - name: Run tests
+        run: uv run pytest --benchmark-disable
+
   ci-success:
     needs: [lint-and-typecheck]
     runs-on: ubuntu-latest
