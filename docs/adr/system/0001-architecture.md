@@ -4,7 +4,7 @@
 * Deciders: daendip2026
 * Consulted: Claude Opus 4.7 (architecture proposal)
 * Created: 2026-05-21
-* Last Modified: 2026-05-25
+* Last Modified: 2026-09-15
 
 ## Context and Problem Statement
 
@@ -61,7 +61,7 @@ Chosen option: **Option 3**, because the data-plane (stale-drop) and control-pla
 
 ### Validation Targets (Performance Stress Testing)
 * Communication-layer latency < 15ms.
-* Zero per-frame GC allocation on the hot path.
+* No garbage-collection pause shows up in frame time under sustained load.
 
 ### Re-review Conditions
 * GC measurements under load violate the frame budget → evaluate serializer swap via `ISerializer`.

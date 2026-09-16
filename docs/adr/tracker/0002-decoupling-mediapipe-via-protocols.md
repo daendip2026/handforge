@@ -4,7 +4,7 @@
 * Deciders: daendip2026
 * Consulted: Claude Opus 4.8 (structure review)
 * Created: 2026-05-27
-* Last Modified: 2026-06-16
+* Last Modified: 2026-09-15
 
 ## Context and Problem Statement
 
@@ -48,16 +48,7 @@ Chosen option: **Option 3** — a contract-typing boundary. The MediaPipe surfac
 
 ### Code Realization
 
-* The tracker accepts an optional factory parameter:
-    ```python
-    def __init__(
-        self,
-        mp_cfg: MediaPipeConfig,
-        tracker_cfg: TrackerConfig,
-        camera_cfg: CameraConfig,
-        hand_landmarker_factory: type[MPHandLandmarker] | None = None,
-    ) -> None:
-    ```
+* The tracker accepts an optional factory with the same shape as `vision.HandLandmarker.create_from_options`, typed to return `MPHandLandmarker`.
 * When a factory is provided (tests), it is invoked in place of `vision.HandLandmarker.create_from_options`. When `None` (application), the tracker instantiates the real Tasks API landmarker.
 * All MediaPipe-typed values internal to the tracker are typed against the Protocols, not against `Any`. This propagates a strict type signature from the boundary downward.
 
