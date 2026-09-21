@@ -88,9 +88,9 @@ support library is itself covered by the above license.
 |:--|:--|
 | `licenseUrl` | <https://vrm.dev/licenses/1.0/> |
 | `authors` | `["daendip2026"]` |
-| `avatarPermission` | `onlyAuthor` |
+| `avatarPermission` | `everyone` |
 | `commercialUsage` | `personalNonProfit` |
-| `modification` | `prohibited` |
+| `modification` | `allowModificationRedistribution` |
 | `allowRedistribution` | `true` |
 | `creditNotation` | `unnecessary` |
 
