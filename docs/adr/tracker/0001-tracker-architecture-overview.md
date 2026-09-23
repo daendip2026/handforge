@@ -4,17 +4,15 @@
 * Deciders: daendip2026
 * Consulted: Claude Opus 4.8 (structure review)
 * Created: 2026-05-26
-* Last Modified: 2026-09-15
+* Last Modified: 2026-09-23
 
 ## Context and Problem Statement
 
 This ADR is **post-hoc documentation**. The tracker is already implemented; this record captures the architectural framework of the tracker pipeline.
 
-The tracker is the producer side of the wire schema defined in [system/ADR-0003](../system/0003-hand-data-structure.md). It must consume webcam frames and produce hand landmarks at frame rate while staying within the constraints inherited from [system/ADR-0001](../system/0001-architecture.md):
+The tracker is the producer side of the wire schema defined in [system/ADR-0003](../system/0003-hand-data-structure.md). It must consume webcam frames and produce hand landmarks at frame rate while staying within the frame budget, the no-GC-stall rule, and the latency target it inherits from [system/ADR-0001](../system/0001-architecture.md). On top of those:
 
-* 16.6ms / 33.3ms per-frame budget (60 / 30 FPS).
-* No GC stalls on the hot path.
-* Tracking-to-render latency < 100ms end-to-end.
+* 33.33ms per-frame budget at the 30 FPS capture rate.
 * Single OS process per stage (the tracker itself runs as **one OS process**; cross-stage IPC to the avatar is handled by the system-level transport, out of scope here).
 
 ## Considered Options

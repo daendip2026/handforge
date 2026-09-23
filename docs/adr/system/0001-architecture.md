@@ -4,17 +4,19 @@
 * Deciders: daendip2026
 * Consulted: Claude Opus 4.7 (architecture proposal)
 * Created: 2026-05-21
-* Last Modified: 2026-09-15
+* Last Modified: 2026-09-23
 
 ## Context and Problem Statement
 
 HandForge couples a Python-based hand-tracking stage (MediaPipe) to a Unity-based interpretation-and-render stage on a single-machine, loopback-only host. This ADR records the decision on the process boundary and communication topology.
 
 ### Hard Constraints
+These are the constraints assumed when this decision was made. The current release targets are set by the [PRD](../../PRD.md#6-acceptance-criteria).
+
 * **Single-machine, loopback-only.** Remote tracking is an explicit non-goal. This constraint exists specifically to prevent the architecture from being justified by, or drifting toward, distributed deployment.
-* **Frame budget.** 60 FPS = 16.6ms, 120 FPS = 8.3ms per frame. The hot path must stay within budget.
+* **Frame budget.** 60 FPS = 16.67ms, 120 FPS = 8.33ms per frame. The hot path must stay within budget.
 * **No GC spikes.** A garbage-collection stall during a live session is a broadcast failure, not a performance footnote.
-* **Tracking-to-render latency < 100ms.** Beyond this, expressive fidelity collapses.
+* **Tracking-to-render latency < 100ms.**
 
 ### Key Context
 * **Output path.** Unity performs final rendering; OBS captures the render output for streaming. No VMC in this path — Unity *is* the render application, so an inter-application avatar protocol has no slot in the delivery chain.
