@@ -9,5 +9,5 @@ Decisions contained in the Python side live in [`../tracker/`](../tracker/README
 | Number | Title | Status |
 |:---:|:---|:---:|
 | [0001](0001-architecture.md) | Separate-Process Architecture with Data/Control Plane Channel Separation | accepted |
-| [0002](0002-monorepo-structure.md) | Single Monorepo Structure (tracker/ + avatar/ + proto/ + docs/) | accepted |
+| [0002](0002-monorepo-structure.md) | One Repository for the Tracker, the Avatar, and the Wire Schema | accepted |
 | [0003](0003-hand-data-structure.md) | Hand-Tracking Data Wire Representation Semantics | accepted |
