@@ -76,8 +76,7 @@ support library is itself covered by the above license.
 
 ## BaseBlack.vrm
 
-* Redistributed as `avatar/HandForge.Avatar/Assets/HandForge/Models/BaseBlack.vrm`
-  through Git LFS.
+* Redistributed as `avatar/HandForge.Avatar/Assets/HandForge/Models/BaseBlack.vrm`.
 * Source: authored by the repository owner in VRoid Studio 2.9.0 from the
   bundled base model `N00`, variant `M00`.
 * Present because the Unity project needs a humanoid VRM avatar to drive.

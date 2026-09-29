@@ -48,7 +48,7 @@
 
 - The root `LICENSE` does not cover third-party or generated material. Before tracking or publishing an external asset, model, or dependency, record in `THIRD-PARTY-NOTICES.md` its source, its license or terms with a date or version, and whether use, modification, and redistribution are permitted.
 - Reproduce a component's full license notice in `THIRD-PARTY-NOTICES.md` when this repository distributes its bytes, because that is when the notice-retention clause binds this project. Reference the upstream notice instead when the consumer resolves the component themselves.
-- Binaries belong in Git LFS through the `.gitattributes` filter, not committed directly. `.vrm` is filtered today.
+- Decide for each new binary whether it is committed directly or through Git LFS, and state the choice and its reason in the commit that adds it.
 
 ## Collaboration and delivery
 

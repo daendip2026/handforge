@@ -1,3 +1,0 @@
-# Unity's Assets/ tree is pre-commit-excluded, so check-added-large-files can't
-# guard it — this LFS filter is the sole defense against binaries bloating git.
-*.vrm filter=lfs diff=lfs merge=lfs -text
