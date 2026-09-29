@@ -1,59 +1,41 @@
-# Hand-Tracking Data Wire Representation Semantics
+# One Protobuf Schema for Both Sides of the Wire
 
 * Status: accepted
 * Deciders: daendip2026
-* Consulted: Claude Opus 4.8 (structure review)
+* Consulted: Claude Opus 4.7 (structure review)
 * Created: 2026-05-22
-* Last Modified: 2026-09-15
+* Last Modified: 2026-09-29
 
 ## Context and Problem Statement
 
-This ADR is **post-hoc documentation**. The tracker (Python, MediaPipe Tasks API, `vision.HandLandmarker`, using the full landmark model `hand_landmarker.task`) is already implemented, and the semantics recorded below were already fixed during that implementation and at initial tracker setup. This is documentation of settled facts, not a new decision. No alternative was reverse-engineered for this record; only the encoder alternatives actually weighed at the time (see Considered Options) are described.
+The tracker is written in Python and the avatar in C#. Both must read the bytes of every message the same way. More messages will be added, because [ADR-0001](0001-architecture.md) leaves the control-plane messages undefined. Each new message must work in both languages.
 
-### Documented Semantics
+The avatar parses a message for every tracker frame. [ADR-0001](0001-architecture.md) requires that no garbage-collection pause show up in frame time.
 
-- **Landmarks.** 21 points per hand, matching the MediaPipe HandLandmarker model.
-- **Metric coordinates on the wire.** Each landmark travels in the metric frame: hand-centric, origin at the hand's approximate geometric center, in metres ([MediaPipe HandLandmarker Python guide](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker/python)). This is **not** an absolute world coordinate. The avatar derives finger articulation and wrist rotation from this frame; it does not receive where the hand sits in the camera image.
-  - The tracker also holds *image-space* landmarks (normalized `[0,1]` for (x, y); z is wrist-relative depth). They stay on the tracker side.
-- **Handedness.** Each detected hand is classified by a `Handedness` enum. On the wire, values are `HANDEDNESS_LEFT`, `HANDEDNESS_RIGHT`, or `HANDEDNESS_UNSPECIFIED`; a hand whose side cannot be determined from the model output is sent as `HANDEDNESS_UNSPECIFIED`. That is the proto3 zero value, so a receiver cannot tell an undetermined side from a field that was never set ([proto3 language guide](https://protobuf.dev/programming-guides/proto3/)). The label's ground-truth meaning depends on the tracker's selfie-mode handling (`mirror_input` configuration) and MediaPipe's handedness convention.
-- **Time.** Time is represented as a `uint64` microsecond value. Which messages carry a timestamp is a field-layout matter, out of scope here.
-
-### Hard constraints
-
-- The data model is a **changing axis**: the hand-keypoint set may evolve (21 points → additional hand keypoints). Lowering the cost of change along this axis is the objective of the representation design.
+The two sides are deployed together from one version of the repository ([ADR-0002](0002-monorepo-structure.md)), so the format does not have to work between different versions.
 
 ## Considered Options
 
-### Option 1: Protobuf
+### Option 1: Hand-written Encoding (Fixed Byte Layout or JSON)
+* **Good**: Neither side adds a library or a code-generation step.
+* **Good, fixed layout only**: The reader can read into the same arrays every frame, so parsing allocates nothing.
+* **Bad**: Each language keeps its own hand-written copy of the layout, so every change is made twice and the two copies are kept in agreement by hand.
 
-Adopt Protobuf as the default serialization format.
-* **Good**: Schema-first codegen for both Python and C# (prevents producer/consumer drift), and backward-compatible additive fields matching the evolving hand-keypoint model.
-* **Bad**: Introduces dependency on Protobuf library and codegen compiler.
+### Option 2: Protobuf (Chosen)
+* **Good**: Both sides' code is generated from one schema. A message or field is added in one place, and regenerating shows whether the two sides still match.
+* **Bad**: Both sides depend on the Protobuf runtime and a code-generation step. The generated C# parser allocates a new object for each message element it reads.
 
-### Option 2: Manual Binary / JSON (non-schema formats)
-
-Manual binary serialization or JSON format.
-* **Good**: Zero compilation step or external library dependency.
-* **Bad**: Without schema-first code generation, the two stages must be kept in sync by hand, which invites producer/consumer version drift.
-
-> FlatBuffers, MessagePack, and similar encoders were **not** compared at this time. Because the encoder is reversible behind `ISerializer`, they remain candidates for a future swap rather than alternatives weighed here. They are referenced only under Re-review Conditions.
+> Other schema-first encoders such as FlatBuffers were **not** compared.
 
 ## Decision Outcome
 
-Chosen option: **Option 1**, because a schema-first encoder prevents producer/consumer version drift, and Protobuf's backward-compatible field addition matches the requirement to evolve the hand-keypoint model additively.
+Chosen option: **Option 2**. We will define the wire format in one Protobuf schema and generate the tracker's and the avatar's code from it, so the format has one definition. The cost is the Protobuf runtime and code generation on both sides, and an allocation each time the avatar parses a message.
 
 ## Consequences
 
 ### Accepted Trade-offs
-
-* **Dependency on a serialization framework.** Protobuf introduces a codegen compiler step and runtime libraries. This cost is accepted because it is isolated behind the `ISerializer` abstraction, allowing a future encoder swap if needed.
-
-### Validation Targets
-
-* Not applicable. The documented semantics and the encoder selection are not themselves measurable. The encoder's hot-path GC cost is, however, validated by the GC performance stress testing defined in [ADR-0001](0001-architecture.md).
+* **Runtime and code generation on both sides.** Accepted because the alternative is two hand-written copies of the same layout that must change together.
+* **Allocation while parsing.** Accepted until the re-review condition below is met.
 
 ### Re-review Conditions
-
-* **GC performance stress testing violates the frame budget** ➔ swap the encoder behind `ISerializer`. Only at this point are FlatBuffers and similar encoders compared.
-* **The hand-landmark model changes from 21 points** (e.g. additional hand keypoints) ➔ evolve the schema additively; do not reuse tag numbers.
-* **Absolute world coordinates become necessary** ➔ supplement the metric semantics with a separate `WorldTransform`; the hand-centric meaning defined in this ADR is retained, not replaced.
+* A release target is missed and the diagnostics attribute the miss to message parsing → re-open this decision.
