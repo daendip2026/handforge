@@ -5,7 +5,7 @@
 
 ## §1 Purpose & Scope
 
-This document is the *performance evidence record* for the HandForge tracker. It collects the KPIs the tracker is designed to meet, the methodology used to measure them, the measured benchmark values, and the pointers needed to reproduce those measurements. ADRs in `docs/adr/tracker/` cite values from this document when making quantitative claims.
+This document is the *performance evidence record* for the HandForge tracker. It collects the KPIs the tracker is designed to meet, the methodology used to measure them, the measured benchmark values, and the pointers needed to reproduce those measurements.
 
 **In scope**
 - Performance KPIs (target values + verification source).
@@ -15,7 +15,6 @@ This document is the *performance evidence record* for the HandForge tracker. It
 
 **Out of scope**
 - System and camera tuning guidance → see [`TUNING.md`](TUNING.md).
-- Architectural optimization rationale → see [tracker ADRs](../docs/adr/tracker/README.md).
 - MediaPipe inference latency → not captured here. The §4 benchmarks mock the detector, and the current runtime instrumentation does not measure inference latency reliably (single mutable submission timestamp, plus per-frame fan-out of one cached value); reliable measurement is tracked as project work.
 
 ## §2 Performance Targets (KPIs)
@@ -102,9 +101,6 @@ uv run python -m cProfile -o logs/tracker_profile.stats -m hand_tracker
 ```
 
 ## §6 References
-
-**ADRs that cite this document**
-- [tracker/ADR-0001 — Pipeline Architecture](../docs/adr/tracker/0001-tracker-architecture-overview.md) — the §4 benchmarks and §3 methodology backing its Validation Targets (FPS sustain, consumer-loop processing cost).
 
 **Related project documents**
 - [`tracker/TUNING.md`](TUNING.md) — system and camera tuning guidance (separate concern).

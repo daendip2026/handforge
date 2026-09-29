@@ -82,7 +82,6 @@ Methodology and reproduction commands are in [`PERFORMANCE.md`](PERFORMANCE.md).
 
 | Document | Purpose |
 |---|---|
-| [`docs/adr/tracker/`](../docs/adr/tracker/) | Architecture Decision Records — *why* the tracker is shaped this way (pipeline structure, MediaPipe boundary). |
 | [`PERFORMANCE.md`](PERFORMANCE.md) | Performance evidence — KPIs, benchmark results, measurement methodology. |
 | [`TUNING.md`](TUNING.md) | System & camera tuning guide — USB bandwidth/FOURCC, OS backends, auto-focus/exposure rationale. |
 

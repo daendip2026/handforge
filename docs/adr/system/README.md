@@ -2,8 +2,6 @@
 
 This directory contains the ADRs whose scope crosses the **tracker** (Python) and **avatar** (Unity, .NET) boundary, including the wire contract between them.
 
-Decisions contained in the Python side live in [`../tracker/`](../tracker/README.md).
-
 ## Document Index
 
 | Number | Title | Status |
