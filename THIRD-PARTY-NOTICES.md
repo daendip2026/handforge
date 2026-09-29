@@ -1,12 +1,8 @@
 # Third-Party Notices
 
-The root `LICENSE` does not cover the components below. For the ones this
-repository redistributes, the license requires the copyright notice, the
-conditions, and the disclaimer to be reproduced with the distribution, so those
-notices appear here in full. Components the consumer resolves for themselves are
-referenced rather than reproduced.
-
-Verified 2026-09-09 against the source each entry names.
+This repository carries the files below under terms other than the root
+`LICENSE`. Where those terms require a notice to travel with the bytes, the
+notice is reproduced in full.
 
 ---
 
@@ -57,23 +53,6 @@ support library is itself covered by the above license.
 
 ---
 
-
-## UniVRM (UniGLTF, VRM10)
-
-* Not redistributed here. Pinned in `avatar/HandForge.Avatar/Packages/manifest.json`
-  as `com.vrmc.gltf` and `com.vrmc.vrm`, both `…UniVRM.git#v0.131.2`, and resolved
-  by the Unity Package Manager into the ignored `Library/` tree at import.
-* Upstream: <https://github.com/vrm-c/UniVRM>, file `LICENSE.txt`
-* Present because the Unity project loads a VRM 1.0 avatar and drives its
-  humanoid rig.
-* MIT — "Copyright (c) 2020 VRM Consortium"; the bundled MToon shader carries
-  "Copyright (c) 2018 Masataka SUMI for MToon". Use, modification, and
-  redistribution are permitted with those notices retained. The notice travels
-  with the package the consumer resolves, so it is referenced here rather than
-  reproduced.
-
----
-
 ## BaseBlack.vrm
 
 * Redistributed as `avatar/HandForge.Avatar/Assets/HandForge/Models/BaseBlack.vrm`.
@@ -96,44 +75,3 @@ support library is itself covered by the above license.
 Each field's meaning is defined by the
 [VRM 1.0 `VRMC_vrm` meta specification](https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_vrm-1.0/meta.md).
 The license text is published at the `licenseUrl` above.
-
----
-
-## Grpc.Tools
-
-* Not redistributed. Declared in `avatar/HandForge.Proto.Codegen/HandForge.Proto.Codegen.csproj`
-  with `PrivateAssets="all"`, so it stays inside that project's build and does not
-  reach anything this repository ships.
-* Version 2.81.1, from NuGet
-* Upstream: <https://github.com/grpc/grpc>
-* Present because it runs `protoc` to generate the C# binding from
-  `proto/handtracking.proto`.
-* Apache-2.0, as the package declares. Use, modification, and redistribution are
-  permitted under it. The notice travels with the package a builder resolves, so
-  it is referenced here rather than reproduced.
-
----
-
-## Python dependencies
-
-* Not redistributed. Declared in `tracker/pyproject.toml` and resolved from PyPI
-  by whoever installs `tracker/`.
-* Present because `tracker/` imports them at run time.
-* Each carries its own license, which travels with the distribution the consumer
-  installs. This repository ships none of their bytes, so each notice is
-  referenced through `tracker/pyproject.toml` rather than reproduced here.
-
----
-
-## MediaPipe hand-landmark model
-
-* Not redistributed. `tracker/scripts/download_models.py` fetches
-  `hand_landmarker.task` at setup from
-  <https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task>,
-  and `tracker/.gitignore` ignores `models/` and `*.task`.
-* Present because `MediaPipeTracker` requires the full HandLandmarker bundle to
-  produce world landmarks.
-* Terms: the MediaPipe Hand Landmarker solution page licenses its documentation
-  under CC BY 4.0 and its code samples under Apache-2.0, and states no separate
-  terms for the `.task` bundle. The consumer downloads the bundle from Google
-  directly.
