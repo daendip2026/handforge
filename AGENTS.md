@@ -55,8 +55,8 @@
 - Surface conflicting or ambiguous requirements before changing the affected area. Continue safe work that is independent of the conflict.
 - Present material tradeoffs and reasoned disagreement instead of silently choosing a direction or agreeing without analysis.
 - Keep commits and pull requests focused, reviewable, and independently reversible. Describe the reason and the verification evidence; do not mix unrelated cleanup.
-- Choose a pull request's merge method from the shape of that pull request's commits, not from what an earlier pull request used. Squash when the branch's commits rework one another; preserve them when each commit builds and stands on its own. Say which and why in the pull request.
-- CI runs once per pull request, not once per commit. A merge method that lands the branch's intermediate commits on `main` lands commits that no CI run covered.
-- When a pull request has one commit, neither method collapses anything and commit shape decides nothing. Choose squash there, so `main` keeps a pointer to the pull request that holds what the commit message does not.
+- Choose each pull request's merge method from its own commits. Squash when each change can be understood from the files it leaves, as with documents, because the commit sequence adds nothing and the squash message keeps every commit message. Keep the commits with a merge commit when the change spans files that cannot be understood one at a time, as with code, because the commit sequence explains how it was built.
+- Each kept commit must build and pass the tests on its own, because a CI run checks only the tip of the pull request and `git bisect` can stop at any commit. Fold review fixes into the commit they fix before merging.
+- When a pull request has one commit, squash it, so `main` keeps a pointer to the pull request.
 - Do not infer authorization to stage, commit, push, open or merge a pull request, publish, or add dependencies.
 - At handoff, report unresolved questions and whether work is local, committed, pushed, or published.
