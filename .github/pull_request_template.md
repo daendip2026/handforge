@@ -23,5 +23,7 @@
 
 ## Third-party material <!-- conditional -->
 
-<!-- When this PR adds or updates an external asset, model, or dependency,
-     confirm THIRD-PARTY-NOTICES.md carries its source, terms, and version. -->
+<!-- When this PR adds a file the repository carries under terms other than
+     the root LICENSE, confirm THIRD-PARTY-NOTICES.md records its source,
+     terms, version, and required notice. When it adds a dependency, state
+     the dependency's license in the commit that adds it. -->

@@ -1,70 +1,37 @@
-# Single Monorepo Structure (tracker/ + avatar/ + proto/ + docs/)
+# One Repository for the Tracker, the Avatar, and the Wire Schema
 
 * Status: accepted
 * Deciders: daendip2026
 * Consulted: Claude Opus 4.7 (structure review)
 * Created: 2026-05-18
-* Last Modified: 2026-09-15
+* Last Modified: 2026-09-24
 
 ## Context and Problem Statement
 
-This ADR is **post-hoc documentation**. The decision was made during planning and committed at the start of implementation; this record captures it after the fact, describing only what actually happened.
+HandForge has two stacks with unrelated toolchains, a Python tracker and a Unity avatar, and both build their bindings from one wire schema. When the schema changes, both sides must follow it, or they disagree about the wire.
 
-### What actually happened
+### Hard Constraints
 
-- A multi-repo layout was a genuinely reviewed alternative during planning, not a strawman. The review cost was real.
-- No multi-repo artifacts were ever physically created. In particular, the Unity (`avatar`) repository was never created. The pre-existing `handforge-python` repository was public.
-- The plan was changed to a single monorepo before implementation proceeded, and implementation began against that single repository.
-- The actual mechanical action was: rename `handforge-python` → `handforge` and add the additional top-level folders (`avatar/`, `proto/`, `docs/`) while moving the existing Python sources under `tracker/` with history preserved.
-- Because no separate repositories existed, there was **no code or repository sunk cost**. This is therefore a *commitment* to the final structure, not an integration of two existing repos and not a reversal of a deployed layout.
-
-### Final structure
-
-```
-handforge/
-├── tracker/   # Python / MediaPipe
-├── avatar/    # Unity / VRM
-├── proto/     # single root .proto (wire schema source of truth)
-└── docs/      # ADRs, documentation
-```
-
-### Hard constraints
-
-- `tracker` (Python) and `avatar` (Unity) run on a single machine over loopback (see [ADR-0001](0001-architecture.md)). Under this constraint, they are **deployed together, not as independent units** (though the architecture remains capable of independent deployment if the constraint is lifted).
-- `proto/` is the single source of truth for the wire schema. Both stages generate code from it.
+* **Deployed together.** The tracker and the avatar run on one machine over loopback ([ADR-0001](0001-architecture.md)), and neither has a consumer other than the other, so they are deployed together, not as independent deployment units.
 
 ## Considered Options
 
 ### Option 1: Multi-repo (Separate tracker and avatar Repositories)
+* **Good**: A hard language and toolchain boundary, and a release cadence per repository.
+* **Bad**: Each side has its own version history, so which tracker version works with which avatar version has to be tracked. Without that, the two sides can be built against different versions of the schema.
 
-Reviewed during planning, then not adopted.
-* **Good**: Hard language/toolchain boundary, per-repository release cadence, and isolation of Unity history-bloat risk from the tracker.
-* **Bad**: Under the single-machine constraint ([ADR-0001](0001-architecture.md)), per-repository release cadence does not materialize, leaving only coordination overhead. Splitting `proto/` and its two generated consumers across repository boundaries permits version skew (schema drift) between separate commits/merges.
-
-### Option 2: Single Monorepo
-
-Adopt a single monorepo containing `tracker/`, `avatar/`, `proto/`, and `docs/`.
-* **Good**: Enables atomic cross-stage changes (a wire-schema change is a single commit updating both generated codebases). Prevents schema skew and avoids coordination overhead of multiple repositories.
-* **Bad**: Couples repository lifecycles. Risks Git history bloat as the avatar stage gains large binary content (VRM models, textures) and Unity `Library/` artifacts.
+### Option 2: Single Monorepo (Chosen)
+* **Good**: The schema and both sides share one version history, so one version of the repository identifies the schema and both sides together.
+* **Bad**: The two sides share one repository lifecycle.
 
 ## Decision Outcome
 
-Chosen option: **Option 2**, because a wire-schema change requires atomic cross-stage updates to prevent version skew, and the independent release cycle benefits of a multi-repo layout do not materialize under the single-machine loopback constraint.
+Chosen option: **Option 2**. We will keep the tracker, the avatar, and the wire schema in one repository, so that they share one version history and no compatibility between repositories has to be tracked. The cost is one repository lifecycle for both sides.
 
 ## Consequences
 
 ### Accepted Trade-offs
-
-* **Coupled repository lifecycle.** A monorepo couples the two stages' repository lifecycle. This cost is accepted because the independent-release benefit it would buy does not exist under the single-machine constraint, so the coupling costs nothing that is actually used today.
-
-### Validation Targets
-
-* CI fails when the committed `avatar/HandForge.Avatar/Assets/HandForge/Proto/Handtracking.cs` differs from what `avatar/HandForge.Proto.Codegen` generates from the current `proto/handtracking.proto`. A single repository lets a schema change and both bindings land in one commit; it does not force the committed C# binding to be regenerated in that commit.
+* **Coupled repository lifecycle.** Accepted because, under the Hard Constraint, a separate release of one side is not needed.
 
 ### Re-review Conditions
-
-* Re-open this decision if a production-grounded reason makes either `tracker` or `avatar` an independent deployment unit — for example, a remote/distributed deployment. Note that such a deployment is currently a non-goal under the single-machine hard constraint ([ADR-0001](0001-architecture.md)).
-
-### Non-Goals
-
-* A Git LFS / large-binary strategy (VRM, textures, Unity `Library/`). Deferred until before the first commit introducing such assets to `avatar/`. Stated here so history is not silently polluted before a decision is made.
+* A production-grounded reason makes the tracker or the avatar an independent deployment unit, for example a remote or distributed deployment → re-open this decision.
