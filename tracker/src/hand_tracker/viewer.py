@@ -47,9 +47,18 @@ class DebugViewer:
     OpenCV-based debug window for real-time visualization of hand tracking.
     """
 
-    def __init__(self, window_name: str = "HandForge Debug Viewer") -> None:
+    def __init__(
+        self, window_name: str = "HandForge Debug Viewer", mirror: bool = True
+    ) -> None:
+        # Mirror only what is shown; the frame itself is never mirrored upstream.
+        self._mirror = mirror
         self._window_name = window_name
         self._is_active = False
+
+    def _to_px(self, p: np.ndarray, w: int, h: int) -> tuple[int, int]:
+        """Normalized landmark -> canvas pixel, mirrored when the preview is."""
+        x = 1.0 - float(p[0]) if self._mirror else float(p[0])
+        return (int(x * w), int(float(p[1]) * h))
 
     def render(self, frame: Frame, result: FrameResult) -> bool:
         """
@@ -65,7 +74,7 @@ class DebugViewer:
                 cv2.startWindowThread()
             self._is_active = True
 
-        canvas = frame.bgr.copy()
+        canvas = cv2.flip(frame.bgr, 1) if self._mirror else frame.bgr.copy()
         h, w = canvas.shape[:2]
 
         # Health Check: If the frame is almost pitch black, warn the user
@@ -97,19 +106,20 @@ class DebugViewer:
             for start_idx, end_idx in HAND_CONNECTIONS:
                 p1 = hand.landmarks[start_idx]
                 p2 = hand.landmarks[end_idx]
-                pt1 = (int(p1[0] * w), int(p1[1] * h))
-                pt2 = (int(p2[0] * w), int(p2[1] * h))
+                pt1 = self._to_px(p1, w, h)
+                pt2 = self._to_px(p2, w, h)
                 cv2.line(canvas, pt1, pt2, COLOR_SKELETON, 2, cv2.LINE_AA)
 
             # Draw landmarks
             for i in range(len(hand.landmarks)):
                 p = hand.landmarks[i]
-                pt = (int(p[0] * w), int(p[1] * h))
+                pt = self._to_px(p, w, h)
                 cv2.circle(canvas, pt, 4, COLOR_LANDMARK, -1, cv2.LINE_AA)
 
             # Draw labels
             wrist = hand.landmarks[0]
-            label_pos = (int(wrist[0] * w), int(wrist[1] * h) - 20)
+            wx, wy = self._to_px(wrist, w, h)
+            label_pos = (wx, wy - 20)
             cv2.putText(
                 canvas,
                 f"{hand.handedness.name} ({hand.confidence:.2f})",

@@ -29,6 +29,10 @@ import collections
 import logging
 import math
 
+import numpy as np
+import numpy.typing as npt
+
+from hand_tracker.hand_position import HandPositionEstimator
 from hand_tracker.logger import get_logger
 from hand_tracker.types import (
     LANDMARK_COUNT,
@@ -36,6 +40,7 @@ from hand_tracker.types import (
     FrameResult,
     ProcessedFrame,
     ProcessedHand,
+    RawHandResult,
 )
 from hand_tracker.utils import (
     US_PER_SEC,
@@ -139,7 +144,9 @@ class LandmarkProcessor:
         processed_frame = processor.update(tracker_output)
     """
 
-    def __init__(self, window_size: int) -> None:
+    def __init__(
+        self, window_size: int, estimator: HandPositionEstimator | None = None
+    ) -> None:
         """
         Initialise the processor.
 
@@ -148,6 +155,9 @@ class LandmarkProcessor:
         window_size:
             Smoothing window for FPS. MUST be injected from config at runtime.
             Values less than 2 will raise ValueError.
+        estimator:
+            Hand position estimator bound to the actual frame size. None leaves
+            every ProcessedHand.wrist_position as None (tests, or no camera info).
         """
         if window_size < 2:
             raise ValueError(
@@ -155,6 +165,7 @@ class LandmarkProcessor:
                 "Check your TrackerConfig.fps_window_size setting."
             )
         self._fps = _FpsEstimator(window_size=window_size)
+        self._estimator = estimator
         self._processed_count: int = 0
 
     def update(self, result: FrameResult) -> ProcessedFrame:
@@ -184,6 +195,7 @@ class LandmarkProcessor:
                 world_landmarks=raw_hand.world_landmarks,
                 handedness=raw_hand.handedness,
                 confidence=raw_hand.confidence,
+                wrist_position=self._wrist_position(raw_hand),
             )
             for raw_hand in result.hands
         )
@@ -209,6 +221,28 @@ class LandmarkProcessor:
             )
 
         return processed
+
+    def _wrist_position(
+        self, raw_hand: RawHandResult
+    ) -> npt.NDArray[np.float32] | None:
+        if self._estimator is None:
+            return None
+        estimate = self._estimator.estimate(raw_hand)
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(
+                "wrist position",
+                extra={
+                    "handedness": raw_hand.handedness.name,
+                    "valid": estimate.position is not None,
+                    "depth_ok": estimate.depth_ok,
+                    "reprojection_px": round(estimate.reprojection_px, 2),
+                    "reprojection_ratio": round(estimate.reprojection_ratio, 4),
+                    "wrist_m": None
+                    if estimate.position is None
+                    else [round(float(c), 3) for c in estimate.position],
+                },
+            )
+        return estimate.position
 
     def reset(self) -> None:
         """Reset FPS estimator and processed frame counter."""

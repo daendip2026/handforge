@@ -76,9 +76,29 @@ class CameraConfig(HandForgeConfigModel):
         max_length=4,
         description="Video codec FOURCC code (e.g., MJPG, YUYV, H264)",
     )
-    mirror_input: bool = Field(
+    diagonal_fov_deg: float = Field(
+        default=78.0,
+        gt=0.0,
+        lt=180.0,
+        description=(
+            "Diagonal field of view of the camera full-frame mode, from the spec "
+            "sheet. Sets the pixel-to-metre scale of the hand position estimate; an "
+            "error here scales only the estimated depth."
+        ),
+    )
+    full_frame_aspect: tuple[int, int] = Field(
+        default=(16, 9),
+        description=(
+            "Aspect ratio (w, h) of the mode the diagonal FOV refers to. A 4:3 "
+            "capture mode is read as a centre crop with the same vertical extent."
+        ),
+    )
+    mirror_preview: bool = Field(
         default=True,
-        description="Mirror the input frame horizontally (standard for webcams)",
+        description=(
+            "Mirror the debug viewer horizontally so the performer sees a mirror "
+            "image. The frame given to MediaPipe is never mirrored."
+        ),
     )
 
 

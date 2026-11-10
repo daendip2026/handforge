@@ -45,7 +45,7 @@ import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
-from hand_tracker.config import CameraConfig, MediaPipeConfig, TrackerConfig
+from hand_tracker.config import MediaPipeConfig, TrackerConfig
 from hand_tracker.logger import get_logger
 from hand_tracker.types import (
     LANDMARK_COUNT,
@@ -158,7 +158,6 @@ class MediaPipeTracker:
         self,
         mp_cfg: MediaPipeConfig,
         tracker_cfg: TrackerConfig,
-        camera_cfg: CameraConfig,
         hand_landmarker_factory: Callable[
             [vision.HandLandmarkerOptions], MPHandLandmarker
         ]
@@ -178,7 +177,6 @@ class MediaPipeTracker:
         """
         self._mp_cfg = mp_cfg
         self._tracker_cfg = tracker_cfg
-        self._camera_cfg = camera_cfg
         self._factory = hand_landmarker_factory
         self._detector: MPHandLandmarker | None = None
         self._warmup_remaining: int = mp_cfg.warmup_frame_count
@@ -282,10 +280,7 @@ class MediaPipeTracker:
             target_side = cfg.primary_hand
 
             h_both = Handedness.BOTH
-            h_left = Handedness.LEFT
-            h_right = Handedness.RIGHT
             h_unknown = Handedness.UNKNOWN
-            is_mirrored = self._camera_cfg.mirror_input
 
             # Task results lists
             rm_landmarks = results.hand_landmarks
@@ -318,14 +313,11 @@ class MediaPipeTracker:
             for mp_lm, mp_wlm, rm_h in zip(
                 rm_landmarks, rm_world, rm_hands, strict=True
             ):
-                # 1. Handedness Swap: Reverse labels if the image is mirrored
-                raw_side = _HANDEDNESS_MAP.get(rm_h[0].category_name, h_unknown)
-                final_side = raw_side
-                if is_mirrored:
-                    if raw_side == h_left:
-                        final_side = h_right
-                    elif raw_side == h_right:
-                        final_side = h_left
+                # 1. Handedness: the frame is not mirrored before inference, so
+                # MediaPipe's label is used unchanged. MediaPipe defines Left and
+                # Right as the subject's hands and states that a horizontally
+                # mirrored image inverts them (HandLandmarkerResult docs).
+                final_side = _HANDEDNESS_MAP.get(rm_h[0].category_name, h_unknown)
 
                 # 2. Filtering: Only keep if it matches target_side (BOTH always passes)
                 if target_side == h_both or final_side == target_side:
