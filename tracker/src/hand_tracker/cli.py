@@ -20,6 +20,7 @@ from rich.table import Table
 
 from hand_tracker.capture import CaptureError, WebcamCapture
 from hand_tracker.config import load_config
+from hand_tracker.hand_position import HandPositionEstimator
 from hand_tracker.landmark_processor import (
     LandmarkProcessor,
     full_landmark_dump,
@@ -313,7 +314,19 @@ def main() -> int:
                     cfg.transport.udp_host, cfg.transport.udp_port
                 ) as transport,
             ):
-                processor = LandmarkProcessor(window_size=cfg.tracker.fps_window_size)
+                # The estimate needs the frame size the driver actually delivers.
+                estimator = (
+                    HandPositionEstimator.from_config(
+                        capture.device_info.actual_width,
+                        capture.device_info.actual_height,
+                        cfg.camera,
+                    )
+                    if capture.device_info is not None
+                    else None
+                )
+                processor = LandmarkProcessor(
+                    window_size=cfg.tracker.fps_window_size, estimator=estimator
+                )
                 serializer = ProtobufSerializer()
                 _rich_console.print(
                     "\n[bold green]Tracker running.[/bold green] "

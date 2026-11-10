@@ -120,6 +120,10 @@ class ProcessedHand:
     world_landmarks: npt.NDArray[np.float32]
     handedness: Handedness
     confidence: float
+    # Wrist in camera coordinates (metres; origin at the lens, +X right, +Y down,
+    # +Z along the view direction). None when the per-frame estimate failed
+    # validation; the hand shape above is still usable then.
+    wrist_position: npt.NDArray[np.float32] | None = None
 
 
 @dataclass(frozen=True, slots=True)

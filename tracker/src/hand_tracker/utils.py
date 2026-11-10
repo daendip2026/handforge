@@ -73,6 +73,13 @@ def console_summary(frame: ProcessedFrame) -> str:
                 f"{p[0]:7.4f} {p[1]:7.4f} {p[2]:8.4f}    "
                 f"{w[0]:8.4f} {w[1]:8.4f} {w[2]:8.4f}"
             )
+        pos = hand.wrist_position
+        if pos is None:
+            lines.append("  WRIST POS (m): not valid this frame")
+        else:
+            lines.append(
+                f"  WRIST POS (m): x={pos[0]:.3f} y={pos[1]:.3f} z={pos[2]:.3f}"
+            )
 
     lines.append("═" * CONSOLE_WIDTH)
     return "\n".join(lines)

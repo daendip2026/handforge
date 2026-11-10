@@ -17,7 +17,8 @@ from hand_tracker.hand_position import (
     reprojection_rms_px,
     to_pixels,
 )
-from hand_tracker.types import LANDMARK_COUNT
+from hand_tracker.landmark_processor import LandmarkProcessor
+from hand_tracker.types import LANDMARK_COUNT, FrameResult, Handedness, RawHandResult
 
 _W, _H = 640, 480
 _INTR = Intrinsics(fx=600.0, fy=600.0, cx=320.0, cy=240.0)
@@ -102,3 +103,43 @@ class TestSolve:
         assert math.isinf(
             reprojection_rms_px(obj, np.array([0.0, 0.0, -1.0]), u, v, _INTR)
         )
+
+
+class TestProcessorIntegration:
+    def _raw(self, obj: np.ndarray) -> RawHandResult:
+        return RawHandResult(
+            landmarks=_project(obj, _T_TRUE, _INTR).astype(np.float32),
+            world_landmarks=obj.astype(np.float32),
+            handedness=Handedness.LEFT,
+            confidence=0.9,
+            timestamp_us=1_000,
+            inference_time_us=100,
+        )
+
+    def test_processed_hand_carries_the_wrist_position(self) -> None:
+        obj = _hand()
+        processor = LandmarkProcessor(
+            window_size=2, estimator=HandPositionEstimator(_W, _H, _INTR)
+        )
+        frame = FrameResult(
+            hands=(self._raw(obj),),
+            timestamp_us=1_000,
+            frame_index=0,
+            inference_time_us=100,
+        )
+        processed = processor.update(frame)
+        assert processed.hands[0].wrist_position is not None
+        np.testing.assert_allclose(
+            processed.hands[0].wrist_position, _T_TRUE + obj[0], atol=1e-4
+        )
+
+    def test_without_an_estimator_the_position_is_absent(self) -> None:
+        obj = _hand()
+        processor = LandmarkProcessor(window_size=2)
+        frame = FrameResult(
+            hands=(self._raw(obj),),
+            timestamp_us=1_000,
+            frame_index=0,
+            inference_time_us=100,
+        )
+        assert processor.update(frame).hands[0].wrist_position is None
