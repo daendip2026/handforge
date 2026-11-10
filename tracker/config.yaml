@@ -17,6 +17,8 @@ camera:
   backend: "AUTO"                      # AUTO | ANY | DSHOW | MSMF | V4L2 | AVFOUNDATION
   fourcc: "MJPG"                       # Video codec format (e.g., MJPG, YUYV, H264)
   mirror_preview: true                 # Mirror only the debug viewer; the frame fed to MediaPipe is never mirrored
+  diagonal_fov_deg: 78.0               # Spec-sheet diagonal FOV of the full-frame mode; sets the pixel-to-metre scale of the hand position
+  full_frame_aspect: [16, 9]           # Mode the FOV refers to; a 4:3 capture mode is read as a centre crop with the same vertical extent
 
 mediapipe:
   # Must be the full HandLandmarker model (hand_landmarker.task); the lite
