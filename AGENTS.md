@@ -35,6 +35,8 @@
 - Refactoring changes internal structure without changing observable behavior. Existing tests must pass unchanged before and after; do not edit a test to fit a refactoring.
 - Preparatory refactoring is allowed and expected, but keep it in its own commit so the refactoring and the feature stay independently reversible.
 - Do not extract an abstraction for a presumptive second consumer. Name the current consumers; if there is one, keep the concrete code.
+- Write a comment only for what the code cannot show: why it is done this way, units and coordinate systems, and facts set by an external document or a measurement, with their source. Do not describe what the code does.
+- Update the comments and docstrings that describe code in the same commit that changes the code.
 
 ## Evidence and verification
 
