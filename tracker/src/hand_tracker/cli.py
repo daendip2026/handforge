@@ -249,7 +249,7 @@ def main() -> int:
     log_lifecycle.start()
     log = get_logger(__name__)
 
-    viewer = DebugViewer() if args.view else None
+    viewer = DebugViewer(mirror=cfg.camera.mirror_preview) if args.view else None
 
     _install_signal_handlers()
 
@@ -308,7 +308,7 @@ def main() -> int:
                     )
 
             with (
-                MediaPipeTracker(cfg.mediapipe, cfg.tracker, cfg.camera) as tracker,
+                MediaPipeTracker(cfg.mediapipe, cfg.tracker) as tracker,
                 UdpTransport(
                     cfg.transport.udp_host, cfg.transport.udp_port
                 ) as transport,

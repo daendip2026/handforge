@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 import numpy as np
 import pytest
 
-from hand_tracker.config import CameraConfig, MediaPipeConfig, TrackerConfig
+from hand_tracker.config import MediaPipeConfig, TrackerConfig
 from hand_tracker.mediapipe_tracker import (
     MediaPipeConfigurationError,
     MediaPipeInferenceError,
@@ -117,16 +117,9 @@ def tracker_cfg() -> TrackerConfig:
 
 
 @pytest.fixture
-def camera_cfg() -> CameraConfig:
-    """Fixture providing a default valid CameraConfig (non-mirrored for pure logic tests)."""
-    return CameraConfig(mirror_input=False)
-
-
-@pytest.fixture
 def create_tracker(
     mp_cfg: MediaPipeConfig,
     tracker_cfg: TrackerConfig,
-    camera_cfg: CameraConfig,
     mock_landmarker_factory: MagicMock,
 ) -> Any:
     """Factory fixture to create MediaPipeTracker instances with less boilerplate."""
@@ -138,7 +131,6 @@ def create_tracker(
         return MediaPipeTracker(
             mp_cfg=custom_mp_cfg or mp_cfg,
             tracker_cfg=custom_tracker_cfg or tracker_cfg,
-            camera_cfg=camera_cfg,
             hand_landmarker_factory=mock_landmarker_factory,
         )
 

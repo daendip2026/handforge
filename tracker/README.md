@@ -7,7 +7,7 @@ Real-time hand pose tracking pipeline using MediaPipe Tasks API and OpenCV.
 
 - **Python** — 3.11, 3.12, or 3.13.
 - **OS** — Windows (the project's verified development environment). Linux/macOS are not verified; see [`TUNING.md`](TUNING.md) for backend caveats.
-- **Webcam** — a built-in or USB camera is required at runtime. The default configuration is calibrated for the project's development setup; cameras with different native mirror orientation may invert `Left`/`Right` handedness labels (configuration toggles do not currently cover all camera types).
+- **Webcam** — a built-in or USB camera is required at runtime. The tracker gives MediaPipe the camera frame without mirroring it, so `Left` is the subject's left hand and `Right` the subject's right hand, as the [`HandLandmarkerResult` documentation](https://github.com/google-ai-edge/mediapipe/blob/8c2f96c001beaf8d3e8eeebfe64f3bcfd1e8ac03/mediapipe/tasks/python/vision/hand_landmarker.py#L250-L252) defines them. With MediaPipe 0.10.33 and a Logitech C922, the performer's left hand was labelled `Left`. If a camera driver mirrors its own output, the two labels swap, and no configuration setting corrects that.
 - **MediaPipe model file** — `hand_landmarker.task`, downloaded by `scripts/download_models.py` on first setup (requires network access).
 
 ## Setup

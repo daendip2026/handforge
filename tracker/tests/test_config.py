@@ -54,7 +54,7 @@ class TestCameraConfig:
         assert cfg.jitter_threshold_multiplier == 1.5
         assert cfg.backend == "AUTO"
         assert cfg.fourcc == "MJPG"
-        assert cfg.mirror_input is True
+        assert cfg.mirror_preview is True
 
     def test_invalid_index_rejected(self) -> None:
         with pytest.raises(ValidationError):
@@ -233,7 +233,7 @@ class TestAppConfig:
 class TestYamlLoading:
     def test_load_config_from_yaml(self, tmp_path: Path) -> None:
         config_data = {
-            "camera": {"index": 1, "width": 1280, "mirror_input": False},
+            "camera": {"index": 1, "width": 1280, "mirror_preview": False},
             "tracker": {"primary_hand": "Left"},
             "logging": {"level": "DEBUG"},
         }
@@ -243,7 +243,7 @@ class TestYamlLoading:
         cfg = load_config(str(config_file))
         assert cfg.camera.index == 1
         assert cfg.camera.width == 1280
-        assert cfg.camera.mirror_input is False
+        assert cfg.camera.mirror_preview is False
         assert cfg.tracker.primary_hand == "Left"
         assert cfg.logging.level == "DEBUG"
 
