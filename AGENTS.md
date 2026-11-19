@@ -35,8 +35,11 @@
 - Refactoring changes internal structure without changing observable behavior. Existing tests must pass unchanged before and after; do not edit a test to fit a refactoring.
 - Preparatory refactoring is allowed and expected, but keep it in its own commit so the refactoring and the feature stay independently reversible.
 - Do not extract an abstraction for a presumptive second consumer. Name the current consumers; if there is one, keep the concrete code.
-- Write a comment only for what the code cannot show: why it is done this way, units and coordinate systems, and facts set by an external document or a measurement, with their source. Do not describe what the code does.
-- Update the comments and docstrings that describe code in the same commit that changes the code.
+- Comments are for the next person who changes the code. Write one only where removing it would lead that person to change the code wrongly or to work out the same thing again.
+- Comments that pass that test usually say why a nearby alternative fails, what a value means where its type does not say (units, coordinate systems, special values), a fact set by an external document or a measurement with the name of its source, or a known gap and the condition for changing the code. These are examples, not a complete list.
+- Do not describe what the code does, how it came to be, or the evidence behind it. The code shows the first, and commit messages and tests hold the others.
+- Keep a comment to one line. Use more only when one line cannot give the reader what the test requires, for example a premise the code does not show, an assumption where a specification is silent, several cases, or the shape of a value, and then write only the premise, its consequence, and what this code does about it.
+- Update the comments and docstrings that describe code in the same commit that changes the code. Change an existing comment only when it is wrong, out of date, or breaks these rules.
 
 ## Evidence and verification
 
