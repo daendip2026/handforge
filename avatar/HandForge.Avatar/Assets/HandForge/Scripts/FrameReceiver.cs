@@ -52,6 +52,7 @@ public class FrameReceiver : MonoBehaviour
         // Per-datagram allocation (byte[], Frame) is accepted.
         // If the profiler shows GC hitches, move to a pool of >=2 buffers with ownership
         // handoff — NOT single-instance reuse, which introduces the torn-read race.
+        bool receivedFirstFrame = false;
         while (_running)
         {
             try
@@ -60,6 +61,11 @@ public class FrameReceiver : MonoBehaviour
                 byte[] data = _udp.Receive(ref remote);
 
                 Frame frame = Frame.Parser.ParseFrom(data);
+                if (!receivedFirstFrame)
+                {
+                    receivedFirstFrame = true;
+                    Debug.Log("FrameReceiver: received the first Frame on UDP port " + Port);
+                }
 
                 // Not a plain store: this code relies only on ECMA-335, which orders a plain store only within its thread (I.12.6.4).
                 Interlocked.Exchange(ref _latest, frame);
