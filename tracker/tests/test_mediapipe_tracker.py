@@ -573,6 +573,7 @@ class TestMediaPipeTrackerInferenceQuality:
         assert hand.landmarks[0, 0] == 0.1
         assert hand.landmarks[0, 1] == 0.2
         assert hand.landmarks[0, 2] == 0.3
+        assert hand.world_landmarks.shape == (LANDMARK_COUNT, 3)
         assert hand.world_landmarks[0, 0] == 0.01
         assert hand.world_landmarks[0, 1] == 0.02
         assert hand.world_landmarks[0, 2] == 0.03
