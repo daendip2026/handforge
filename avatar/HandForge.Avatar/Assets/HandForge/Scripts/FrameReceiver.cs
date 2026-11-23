@@ -10,7 +10,7 @@ using Google.Protobuf;
     - Start(): bind failure is unhandled (e.g. port already in use).
     - Class is in the global namespace (should be namespaced).
     - ReceiveLoop(): busy-spins if a socket error persists.
-    - OnDestroy(): no null-safety for _udp/_thread if Start() threw before assigning them.
+    - OnDestroy(): no null-safety for _udp/_thread if Start() returned early or threw before assigning them.
 */
 public class FrameReceiver : MonoBehaviour
 {
@@ -49,7 +49,7 @@ public class FrameReceiver : MonoBehaviour
 
     private void ReceiveLoop()
     {
-        // Per-frame allocation (byte[] + Frame) is fine for this proof of concept.
+        // Per-datagram allocation (byte[], Frame) is accepted.
         // If the profiler shows GC hitches, move to a pool of >=2 buffers with ownership
         // handoff — NOT single-instance reuse, which introduces the torn-read race.
         while (_running)
@@ -61,9 +61,7 @@ public class FrameReceiver : MonoBehaviour
 
                 Frame frame = Frame.Parser.ParseFrom(data);
 
-                // Publish through Interlocked (not `_latest = frame`): a plain write isn't
-                // guaranteed visible across threads, so the main thread could observe a
-                // half-published reference. Interlocked adds the barrier.
+                // Not a plain store: this code relies only on ECMA-335, which orders a plain store only within its thread (I.12.6.4).
                 Interlocked.Exchange(ref _latest, frame);
             }
             catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
