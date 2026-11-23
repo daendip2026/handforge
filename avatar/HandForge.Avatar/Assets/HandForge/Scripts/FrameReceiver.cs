@@ -73,6 +73,10 @@ public class FrameReceiver : MonoBehaviour
             {
                 Debug.LogWarning("Dropped a malformed datagram (protobuf parse failed): " + ex.Message);
             }
+            catch (Exception ex)
+            {
+                Debug.LogError("Dropped a datagram after an unexpected exception: " + ex);
+            }
         }
     }
 
