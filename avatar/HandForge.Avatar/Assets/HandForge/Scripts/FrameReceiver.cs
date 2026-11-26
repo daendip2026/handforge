@@ -17,24 +17,24 @@ public class FrameReceiver : MonoBehaviour
     private const int Port = 9000;
     private const int JoinTimeoutMs = 500; // long enough for the loop to observe the close & exit, short enough not to stall teardown
 
-    private Animator _humanoidRig;
-    private Transform _rightHandBone;
+    private FingerMapping _leftFingers;
+    private FingerMapping _rightFingers;
     private UdpClient _udp;
     private Thread _thread;
     private volatile bool _running;
 
     // Single slot, not a queue: we only ever want the latest frame,
     // so stale frames are always dropped.
-    private Frame _latest;
+    private HandFrame _latest;
 
     private void Start()
     {
-        _humanoidRig = GetComponent<Animator>();
-        _rightHandBone = _humanoidRig.GetBoneTransform(HumanBodyBones.RightHand);
-        if (_rightHandBone == null)
+        var humanoidRig = GetComponent<Animator>();
+        if (!FingerMapping.TryCreate(humanoidRig, FingerMapping.LeftHand, out _leftFingers, out HumanBodyBones missing)
+            || !FingerMapping.TryCreate(humanoidRig, FingerMapping.RightHand, out _rightFingers, out missing))
         {
             enabled = false;
-            Debug.LogError("RightHand is not found");
+            Debug.LogError(missing + " is not found");
             return;
         }
 
@@ -49,7 +49,7 @@ public class FrameReceiver : MonoBehaviour
 
     private void ReceiveLoop()
     {
-        // Per-datagram allocation (byte[], Frame) is accepted.
+        // Per-datagram allocation (byte[], Frame, HandFrame) is accepted.
         // If the profiler shows GC hitches, move to a pool of >=2 buffers with ownership
         // handoff — NOT single-instance reuse, which introduces the torn-read race.
         bool receivedFirstFrame = false;
@@ -67,8 +67,10 @@ public class FrameReceiver : MonoBehaviour
                     Debug.Log("FrameReceiver: received the first Frame on UDP port " + Port);
                 }
 
+                HandFrame hands = HandFrame.FromWire(frame);
+
                 // Not a plain store: this code relies only on ECMA-335, which orders a plain store only within its thread (I.12.6.4).
-                Interlocked.Exchange(ref _latest, frame);
+                Interlocked.Exchange(ref _latest, hands);
             }
             catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
             {
@@ -88,19 +90,11 @@ public class FrameReceiver : MonoBehaviour
 
     private void Update()
     {
-        Frame frame = Interlocked.Exchange(ref _latest, null);
-        if (frame == null) return;
+        HandFrame received = Interlocked.Exchange(ref _latest, null);
+        if (received == null) return;
 
-        if (frame.Hands.Count == 0) return;
-
-        // Ad-hoc mapping (screen-x → wrist z-rotation), deliberately meaningless.
-        // Proves data flow only; real coordinate design will be done later.
-        var hand = frame.Hands[0];
-        var angle = (hand.Landmarks[0].X - 0.5f) * 90f;
-        _rightHandBone.localRotation = Quaternion.Euler(0, 0, angle);
-
-        Debug.Log($"angle: {angle}");
-
+        if (received.Left != null) _leftFingers.Apply(received.Left);
+        if (received.Right != null) _rightFingers.Apply(received.Right);
     }
 
     private void OnDestroy()
