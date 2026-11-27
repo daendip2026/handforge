@@ -47,10 +47,10 @@ namespace HandForge.Proto {
   }
   #region Enums
   /// <summary>
-  /// Performer's anatomical hand side, AFTER mirror correction.
-  /// Contract obligation: the tracker MUST deliver an anatomically-correct label
-  /// regardless of how it handles mirror_input. Domain-enum boundary mapping
-  /// (applied once, just before serialization):
+  /// The performer's anatomical hand side. The tracker passes MediaPipe's label
+  /// through unchanged: it gives MediaPipe an unmirrored image, and MediaPipe
+  /// labels the hands of the person in the image (Hand Landmarker Python guide).
+  /// Domain-enum boundary mapping (applied once, just before serialization):
   ///   LEFT  -> HANDEDNESS_LEFT
   ///   RIGHT -> HANDEDNESS_RIGHT
   ///   UNKNOWN (side undetermined) -> HANDEDNESS_UNSPECIFIED
@@ -69,6 +69,9 @@ namespace HandForge.Proto {
   /// One hand landmark in hand-centric metric space.
   /// Units: metres. Origin: MediaPipe hand_world_landmarks origin = the hand's
   /// approximate geometric center (NOT the wrist, NOT absolute world).
+  /// Axes (measured; MediaPipe does not document them): +x right, +y down,
+  /// +z away from the camera, in the unmirrored image the tracker gives
+  /// MediaPipe. Right-handed.
   /// </summary>
   [global::System.Diagnostics.DebuggerDisplayAttribute("{ToString(),nq}")]
   public sealed partial class Landmark : pb::IMessage<Landmark>
