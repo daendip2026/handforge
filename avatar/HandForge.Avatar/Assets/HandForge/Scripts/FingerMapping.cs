@@ -125,6 +125,23 @@ public sealed class FingerMapping
         }
     }
 
+    /// <summary>Takes <paramref name="points"/>, an open hand from <see cref="HandFrame"/>, as the rest pose, so later <see cref="Apply"/> calls show that hand as the avatar's rest pose.</summary>
+    public void RecordOpenHand(Vector3[] points)
+    {
+        Quaternion toHand = ToHand(points);
+        for (int f = 0; f < FingerCount; f++)
+        {
+            Quaternion parent = Quaternion.identity;
+            for (int j = 0; j < JointsPerFinger; j++)
+            {
+                int k = f * JointsPerFinger + j;
+                _restDirections[k] = Direction(points, toHand, parent, f, j);
+                // Rest, not current, so Apply on this pose gives the rest pose.
+                parent *= _restLocalRotations[k];
+            }
+        }
+    }
+
     private Quaternion ToHand(Vector3[] points)
     {
         return _palmInHand * Quaternion.Inverse(Palm(points[0], points[5], points[17]));

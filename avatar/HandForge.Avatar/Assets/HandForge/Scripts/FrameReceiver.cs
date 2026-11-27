@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using HandForge.Proto;
 using Google.Protobuf;
 
@@ -17,6 +18,11 @@ public class FrameReceiver : MonoBehaviour
     private const int Port = 9000;
     private const int JoinTimeoutMs = 500; // long enough for the loop to observe the close & exit, short enough not to stall teardown
 
+    // One key per hand, so the hand pressing it is not recorded: L is under the right hand, R the left.
+    // Input System keys are physical positions named after the US layout (Input System docs).
+    private const Key RecordLeftHandKey = Key.L;
+    private const Key RecordRightHandKey = Key.R;
+
     private FingerMapping _leftFingers;
     private FingerMapping _rightFingers;
     private UdpClient _udp;
@@ -26,6 +32,9 @@ public class FrameReceiver : MonoBehaviour
     // Single slot, not a queue: we only ever want the latest frame,
     // so stale frames are always dropped.
     private HandFrame _latest;
+
+    // Kept across Updates: a key pressed in an Update with no new frame must still record.
+    private HandFrame _hands;
 
     private void Start()
     {
@@ -91,10 +100,20 @@ public class FrameReceiver : MonoBehaviour
     private void Update()
     {
         HandFrame received = Interlocked.Exchange(ref _latest, null);
-        if (received == null) return;
+        if (received != null) _hands = received;
+        if (_hands == null) return;
 
-        if (received.Left != null) _leftFingers.Apply(received.Left);
-        if (received.Right != null) _rightFingers.Apply(received.Right);
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard != null)
+        {
+            if (keyboard[RecordLeftHandKey].wasPressedThisFrame && _hands.Left != null)
+                _leftFingers.RecordOpenHand(_hands.Left);
+            if (keyboard[RecordRightHandKey].wasPressedThisFrame && _hands.Right != null)
+                _rightFingers.RecordOpenHand(_hands.Right);
+        }
+
+        if (_hands.Left != null) _leftFingers.Apply(_hands.Left);
+        if (_hands.Right != null) _rightFingers.Apply(_hands.Right);
     }
 
     private void OnDestroy()
